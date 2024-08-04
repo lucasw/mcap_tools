@@ -3,6 +3,10 @@
 [mcap](https://mcap.dev) tools with initial emphasis on ros1 and rust using [roslibrust](https://github.com/Carter12s/roslibrust)
 
 
+```
+ROS_PACKAGE_PATH=`rospack find std_msgs` cargo run --release
+```
+
 ## existing tools and information
 
 https://github.com/lucasw/ros_one2z/tree/main/mcap_to_rerun - play select message types out of ros1 mcap bags into [rerun](https://rerun.io/)
