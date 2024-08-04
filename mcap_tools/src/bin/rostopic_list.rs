@@ -11,6 +11,7 @@ use tracing_subscriber;
 roslibrust_codegen_macro::find_and_generate_ros_messages!();
 
 async fn get_master_client(node_name: &str) -> Result<MasterClient, anyhow::Error> {
+    // TODO(lucasw) copied this out of roslibrust actor.rs Node::new()
     let master_uri = std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
 
     let (node_sender, _node_receiver) = mpsc::unbounded_channel();
@@ -33,9 +34,6 @@ async fn get_master_client(node_name: &str) -> Result<MasterClient, anyhow::Erro
     Ok(master_client)
 }
 
-/// A basic example of connecting and subscribing to data.
-/// This example will log received messages if run at the same time as "basic_publisher".
-/// A running rosbridge websocket server at the default port (9090) is required to run this example.
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let tracing_sub = tracing_subscriber::fmt().finish();
