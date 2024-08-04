@@ -30,3 +30,11 @@ path = "../../roslibrust/roslibrust_codegen"
 path = "../../roslibrust/roslibrust_codegen_macro"
 # path = "../../../../../other/src/rust/roslibrust/roslibrust_codegen_macro"
 # version="0.10"
+
+[[bin]]
+name = "rostopic_list"
+path = "src/rostopic_list.rs"
+
+[[bin]]
+name = "mcap_record"
+path = "src/mcap_record.rs"
