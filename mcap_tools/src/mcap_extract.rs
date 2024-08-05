@@ -50,7 +50,7 @@ fn mcap_extract(path: &PathBuf)
         // println!("{:?}", print_type_of(&message));
         match message_raw {
             Ok(message) => {
-                match message.channel.schema {
+                match &message.channel.schema {
                     Some(schema) => {
                         if schema.name == "sensor_msgs/CompressedImage" {
                             let topic = message.channel.topic.replace("/", "__");
@@ -58,8 +58,27 @@ fn mcap_extract(path: &PathBuf)
                             let msg_with_header = get_message_data_with_header(message.data);
                             match serde_rosmsg::from_slice::<sensor_msgs::CompressedImage>(&msg_with_header) {
                                 Ok(image_msg) => {
-                                    println!("{:?} {:?} -> {:?}", image_msg.header.stamp, message.channel.topic, topic);
-                                }
+                                    /*
+                                    println!("{:?} {:?} -> {:?} {}",
+                                        image_msg.header.stamp,
+                                        message.channel.topic,
+                                        topic,
+                                        image_msg.data.len(),
+                                    );
+                                    */
+
+                                    let image_name = format!("{topic}/{}{:0>9}.{}",
+                                        image_msg.header.stamp.secs,
+                                        image_msg.header.stamp.nsecs,
+                                        image_msg.format,
+                                        );
+                                    println!("{image_name}");
+                                    fs::create_dir_all(topic)?;
+                                    fs::write(image_name, &image_msg.data)?;
+                                },
+                                Err(err) => {
+                                    println!("{err:?}");
+                                },
                             }
                         }
                     },
