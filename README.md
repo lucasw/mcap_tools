@@ -4,7 +4,7 @@
 
 
 ```
-ROS_PACKAGE_PATH=`rospack find std_msgs` cargo run --release
+ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs` cargo run --release --bin mcap_extract /path/to/some.mcap
 ```
 
 ## existing tools and information

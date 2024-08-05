@@ -11,7 +11,8 @@ use tracing;
 roslibrust_codegen_macro::find_and_generate_ros_messages!();
 
 pub async fn get_master_client(node_name: &str) -> Result<MasterClient, anyhow::Error> {
-    // TODO(lucasw) copied this out of roslibrust actor.rs Node::new()
+    // copied this out of roslibrust actor.rs Node::new(), seemed like bare minimum
+    // to make a valid master client
     let master_uri = std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
 
     let (node_sender, _node_receiver) = mpsc::unbounded_channel();

@@ -7,6 +7,10 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.86"
+camino = "1.1.7"
+mcap = "0.9.1"
+memmap = "0.7.0"
+serde_rosmsg = "0.2.0"
 tokio = "1.39.2"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
@@ -34,6 +38,10 @@ path = "../../roslibrust/roslibrust_codegen_macro"
 [[bin]]
 name = "rostopic_list"
 path = "src/rostopic_list.rs"
+
+[[bin]]
+name = "mcap_extract"
+path = "src/mcap_extract.rs"
 
 [[bin]]
 name = "mcap_record"
