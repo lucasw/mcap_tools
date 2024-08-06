@@ -14,7 +14,7 @@ async fn main() -> Result<(), anyhow::Error> {
     // view log messages from roslibrust in stdout
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Debug)
-        .without_timestamps() // required for running wsl2
+        // .without_timestamps() // required for running wsl2
         .init()
         .unwrap();
 
@@ -55,21 +55,19 @@ async fn main() -> Result<(), anyhow::Error> {
             if !old_topics.contains(topic_and_type) {
                 println!("added {topic_and_type:?}");
                 let (topic, topic_type) = topic_and_type;
-                let topic_copy = topic.clone();
+                // let topic_copy = topic.clone();
+                // TODO(lucasw) the type is almost certainly not std_msgs::ByteMultiArray,
+                // but need to provide some type to downstream machinery
                 let mut subscriber = nh.subscribe_any::<std_msgs::ByteMultiArray>(topic, topic_type, 10).await?;
 
                 let rv = tokio::spawn(async move {
-                    /*
-                    loop {
-                        let rv = subscriber.next_raw().await;
-                        println!("{rv:?}");
-                    }
-                    */
+                    // TODO(lucasw) seeing some message arrive repeatedly, but only if the
+                    // publisher starts after this node does?
                     while let Some(data) = subscriber.next_raw().await {
                         if let Ok(data) = data {
-                            println!("Got raw message data: {} bytes, {:?}", data.len(), data);
+                            log::debug!("Got raw message data: {} bytes, {:?}", data.len(), data);
                         } else {
-                            println!("{data:?}");
+                            log::error!("{data:?}");
                         }
                     }
                 });
