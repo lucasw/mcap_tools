@@ -41,7 +41,11 @@ pub async fn get_master_client(node_name: &str) -> Result<MasterClient, anyhow::
 ///
 /// returns full path node name, the namespace, and a vector of unused args
 pub fn get_params(params: &mut HashMap::<String, String>) -> (String, String, Vec<String>) {
-    params.insert("_name".to_string(), "dynrec".to_string());
+    // TODO(lucasw) generate a unique node name
+    // let _ = params.try_insert("_name".to_string(), "node_tbd".to_string());
+    if !params.contains_key("_name") {
+        params.insert("_name".to_string(), "node_tbd".to_string());
+    }
     params.insert("_ns".to_string(), "".to_string());
 
     // TODO(lucasw) can an existing rust arg handling library handle the ':=' ros cli args?
