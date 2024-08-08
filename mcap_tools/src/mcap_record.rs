@@ -4,6 +4,7 @@
 mod misc;
 use misc::get_params;
 use misc::get_master_client;
+use std::borrow::Cow;
 use std::{collections::BTreeMap, fs, io::BufWriter};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -29,8 +30,9 @@ async fn main() -> Result<(), anyhow::Error> {
         let master_uri = std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
         roslibrust::ros1::NodeHandle::new(&master_uri, &full_node_name).await?
     };
+
     let mcap_name = "out.mcap";
-    let mut mcap_out = mcap::Writer::new(BufWriter::new(fs::File::create(mcap_name)?))?;
+    let mcap_out = mcap::Writer::new(BufWriter::new(fs::File::create(mcap_name)?))?;
     let mcap_out = Arc::new(Mutex::new(mcap_out));
     /*
     let mut writer = mcap::WriteOptions::new()
@@ -44,13 +46,11 @@ async fn main() -> Result<(), anyhow::Error> {
         let mcap_out_copy = mcap_out.clone();
         tokio::spawn(async move {
             tokio::signal::ctrl_c().await.unwrap();
-            mcap_out_copy.lock().unwrap().finish();
+            log::debug!("closing mcap");
+            let _ = mcap_out_copy.lock().unwrap().finish();
             std::process::exit(0);
         });
     }
-
-    let mut subscribers = HashMap::new();
-    // let mut channels = HashMap::new();
 
     let mut old_topics = HashSet::<(String, String)>::new();
     loop {
@@ -60,17 +60,17 @@ async fn main() -> Result<(), anyhow::Error> {
         let mut cur_topics = HashSet::<(String, String)>::new();
         for (topic_name, topic_type) in &topics {
             cur_topics.insert(((*topic_name).clone(), (*topic_type).clone()));
-            // println!("{topic_name} - {topic_type}");
+            // log::debug!("{topic_name} - {topic_type}");
         }
 
         for topic_and_type in &old_topics {
             if !cur_topics.contains(topic_and_type) {
-                println!("removed {topic_and_type:?}");
+                log::debug!("removed {topic_and_type:?}");
             }
         }
         for topic_and_type in &cur_topics {
             if !old_topics.contains(topic_and_type) {
-                println!("added {topic_and_type:?}");
+                log::debug!("added {topic_and_type:?}");
                 let (topic, topic_type) = topic_and_type;
                 let topic_copy = topic.clone();
                 // TODO(lucasw) the type is almost certainly not std_msgs::ByteMultiArray,
@@ -81,11 +81,10 @@ async fn main() -> Result<(), anyhow::Error> {
                 let nh_copy = nh.clone();
                 let mcap_out = mcap_out.clone();
 
-                let rv = tokio::spawn(async move {
+                let _sub = tokio::spawn(async move {
                     let mut sequence = 0;
                     // TODO(lucasw) make these Option?
                     let mut have_definition = false;
-                    let mut definition;
                     let mut channel_id = 0;
                     // TODO(lucasw) seeing some message arrive repeatedly, but only if the
                     // publisher starts after this node does?
@@ -94,16 +93,18 @@ async fn main() -> Result<(), anyhow::Error> {
                             log::debug!("Got raw message data: {} bytes, {:?}", data.len(), data);
                             // log::debug("{:}",
                             if !have_definition {
-                                println!("get definition");
-                                definition = nh_copy.inner.get_definition(topic_copy.clone()).await;
+                                log::debug!("get definition");
+                                let definition = nh_copy.inner.get_definition(topic_copy.clone()).await;
                                 if let Ok(definition) = definition {
                                     have_definition = true;
-                                    println!("definition: '{definition}'");
+                                    log::debug!("definition: '{definition}'");
+                                    // TODO(lucasw) make hashmap of schemas for this type and reuse
+                                    // them?
                                     let schema = mcap::Schema {
                                         name: topic_copy.clone(),
                                         encoding: "ros1msg".to_string(),
                                         // TODO(lucasw) definition doesn't live long enough
-                                        data: std::borrow::Cow::Borrowed(definition.as_bytes()),
+                                        data: Cow::from(definition.as_bytes().to_owned()),
                                     };
                                     let channel = mcap::Channel {
                                         topic: topic_copy.clone(),
@@ -113,10 +114,8 @@ async fn main() -> Result<(), anyhow::Error> {
                                     };
                                     // TODO(lucasw) how to do ? in async block?
                                     channel_id = mcap_out.lock().unwrap().add_channel(&channel).unwrap();
-                                    // channels.insert(topic_copy.clone(), channel_id);
                                 }
                             }
-                            // let channel_id = channels.get(&topic_copy).unwrap();
                             // TODO(lucasw) u64 will only get us to the year 2554...
                             let ns_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64;
                             mcap_out.lock().unwrap().write_to_known_channel(
@@ -133,12 +132,10 @@ async fn main() -> Result<(), anyhow::Error> {
                         } else {
                             log::error!("{data:?}");
                         }
-                    }
-                });
-
-                subscribers.insert(topic.clone(), rv);
-            }
-        }
+                    }  // get new messages in loop
+                });  // subscriber
+            }  // new topic
+        }  // loop through current topics
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         old_topics = cur_topics;
