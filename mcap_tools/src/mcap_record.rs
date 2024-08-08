@@ -135,7 +135,7 @@ async fn main() -> Result<(), anyhow::Error> {
                                 // TODO(lucasw) get this from somewhere
                                 publish_time: ns_epoch,
                             },
-                            &*data,
+                            &data[4..],  // chop off header bytes
                         ).unwrap();
 
                         sequence += 1;
