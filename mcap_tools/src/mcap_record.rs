@@ -17,7 +17,7 @@ roslibrust_codegen_macro::find_and_generate_ros_messages!();
 async fn main() -> Result<(), anyhow::Error> {
     // view log messages from roslibrust in stdout
     simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Debug)
+        .with_level(log::LevelFilter::Info)
         // .without_timestamps() // required for running wsl2
         .init()
         .unwrap();
@@ -83,7 +83,7 @@ async fn main() -> Result<(), anyhow::Error> {
             let (topic, topic_type) = topic_and_type.clone();
             // TODO(lucasw) the type is almost certainly not std_msgs::ByteMultiArray,
             // but need to provide some type to downstream machinery
-            let mut subscriber = nh.subscribe_any::<std_msgs::ByteMultiArray>(&topic, &topic_type, 10).await?;
+            let mut subscriber = nh.subscribe_any::<std_msgs::ByteMultiArray>(&topic, &topic_type, 100).await?;
 
             // maybe should do arc mutex
             let nh_copy = nh.clone();
@@ -97,7 +97,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 // publisher starts after this node does?
                 while let Some(data) = subscriber.next_raw().await {
                     if let Ok(data) = data {
-                        log::debug!("Got raw message data: {} bytes, {:?}", data.len(), data);
+                        // log::debug!("Got raw message data: {} bytes, {:?}", data.len(), data);
                         if channel_id.is_none() {
                             if !schemas_copy.lock().unwrap().contains_key(&topic_type.clone()) {
                                 log::debug!("get definition");
