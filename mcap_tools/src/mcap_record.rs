@@ -104,7 +104,7 @@ async fn main() -> Result<(), anyhow::Error> {
                                 let definition = nh_copy.inner.get_definition(topic.clone()).await.unwrap();
                                 log::debug!("definition: '{definition}'");
                                 let schema = mcap::Schema {
-                                    name: topic.clone(),
+                                    name: topic_type.clone(),
                                     encoding: "ros1msg".to_string(),
                                     // TODO(lucasw) definition doesn't live long enough
                                     data: Cow::from(definition.as_bytes().to_owned()),
