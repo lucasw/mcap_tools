@@ -83,7 +83,7 @@ async fn main() -> Result<(), anyhow::Error> {
             let (topic, topic_type) = topic_and_type.clone();
             // TODO(lucasw) the type is almost certainly not std_msgs::ByteMultiArray,
             // but need to provide some type to downstream machinery
-            let mut subscriber = nh.subscribe_any::<std_msgs::ByteMultiArray>(&topic, &topic_type, 100).await?;
+            let mut subscriber = nh.subscribe_any::<std_msgs::ByteMultiArray>(&topic, &topic_type, 500).await?;
 
             // maybe should do arc mutex
             let nh_copy = nh.clone();
