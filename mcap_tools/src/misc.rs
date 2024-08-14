@@ -1,3 +1,6 @@
+use anyhow::{Context, Result};
+use camino::Utf8Path;
+use memmap::Mmap;
 use roslibrust::ros1::{
     MasterClient,
     NodeServerHandle,
@@ -81,4 +84,19 @@ pub fn get_params(params: &mut HashMap::<String, String>) -> (String, String, Ve
         ).replace("//", "/");
 
     (ns.to_string(), full_node_name.to_string(), args2)
+}
+
+// TODO(lucasw) why is this needed?  https://docs.rs/mcap/latest/mcap/ doesn't explain it
+pub fn map_mcap<P: AsRef<Utf8Path>>(p: P) -> Result<Mmap> {
+    let fd = std::fs::File::open(p.as_ref()).context("Couldn't open MCAP file")?;
+    unsafe { Mmap::map(&fd) }.context("Couldn't map MCAP file")
+}
+
+// TODO(lucasw) https://github.com/Carter12s/roslibrust/issues/158#issuecomment-2187839437
+pub fn get_message_data_with_header<'a>(raw_message_data: std::borrow::Cow<'a, [u8]>) -> Vec<u8> {
+    let len_header = raw_message_data.len() as u32;
+    let mut msg_with_header = Vec::from(len_header.to_le_bytes());
+    let mut message_data = Vec::from(raw_message_data);
+    msg_with_header.append(&mut message_data);
+    msg_with_header
 }

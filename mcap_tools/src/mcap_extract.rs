@@ -4,8 +4,8 @@
 use std::{env, fs, path::PathBuf};
 
 use anyhow::{Context, Result};
-use camino::Utf8Path;
-use memmap::Mmap;
+
+use misc::{get_message_data_with_header, map_mcap};
 
 use roslibrust_codegen_macro::find_and_generate_ros_messages;
 
@@ -16,20 +16,6 @@ fn print_type_of<T>(_: &T) -> String {
     format!("{}", std::any::type_name::<T>())
 }
 */
-
-fn map_mcap<P: AsRef<Utf8Path>>(p: P) -> Result<Mmap> {
-    let fd = fs::File::open(p.as_ref()).context("Couldn't open MCAP file")?;
-    unsafe { Mmap::map(&fd) }.context("Couldn't map MCAP file")
-}
-
-// TODO(lucasw) https://github.com/Carter12s/roslibrust/issues/158#issuecomment-2187839437
-fn get_message_data_with_header<'a>(raw_message_data: std::borrow::Cow<'a, [u8]>) -> Vec<u8> {
-    let len_header = raw_message_data.len() as u32;
-    let mut msg_with_header = Vec::from(len_header.to_le_bytes());
-    let mut message_data = Vec::from(raw_message_data);
-    msg_with_header.append(&mut message_data);
-    msg_with_header
-}
 
 /*
 fn ros_to_ns_string(ros_stamp: roslibrust_codegen::Time) -> f64 {

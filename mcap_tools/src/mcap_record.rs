@@ -17,7 +17,7 @@ roslibrust_codegen_macro::find_and_generate_ros_messages!();
 async fn main() -> Result<(), anyhow::Error> {
     // view log messages from roslibrust in stdout
     simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
+        .with_level(log::LevelFilter::Debug)
         // .without_timestamps() // required for running wsl2
         .init()
         .unwrap();
@@ -83,7 +83,8 @@ async fn main() -> Result<(), anyhow::Error> {
             let (topic, topic_type) = topic_and_type.clone();
             // TODO(lucasw) the type is almost certainly not std_msgs::ByteMultiArray,
             // but need to provide some type to downstream machinery
-            let mut subscriber = nh.subscribe_any::<std_msgs::ByteMultiArray>(&topic, &topic_type, 500).await?;
+            let queue_size = 500;
+            let mut subscriber = nh.subscribe_any(&topic, queue_size).await?;
 
             // maybe should do arc mutex
             let nh_copy = nh.clone();
@@ -95,7 +96,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 let mut channel_id = None;
                 // TODO(lucasw) seeing some message arrive repeatedly, but only if the
                 // publisher starts after this node does?
-                while let Some(data) = subscriber.next_raw().await {
+                while let Some(data) = subscriber.next().await {
                     if let Ok(data) = data {
                         // log::debug!("Got raw message data: {} bytes, {:?}", data.len(), data);
                         if channel_id.is_none() {

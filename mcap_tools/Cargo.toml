@@ -46,5 +46,9 @@ name = "mcap_extract"
 path = "src/mcap_extract.rs"
 
 [[bin]]
+name = "mcap_play"
+path = "src/mcap_play.rs"
+
+[[bin]]
 name = "mcap_record"
 path = "src/mcap_record.rs"
