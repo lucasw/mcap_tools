@@ -1,6 +1,8 @@
 //! load mcaps and exports all compressed images to disk into directories derived from topics
 //! and filenames using the total nanoseconds of the timestamp
 
+mod misc;
+
 use std::{env, fs, path::PathBuf};
 
 use anyhow::{Context, Result};
