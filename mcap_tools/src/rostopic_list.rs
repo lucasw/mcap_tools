@@ -1,9 +1,7 @@
 /// get a list of ros topics from the master, optionally loop and show new topics that appear
 /// or note old topics that have gone away
 
-mod misc;
-use misc::get_params;
-use misc::get_master_client;
+use mcap_tools::misc;
 use std::collections::HashMap;
 use tracing_subscriber;
 
@@ -14,10 +12,10 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let node_name = "/topic_list";
 
-    let master_client = get_master_client(&node_name).await?;
+    let master_client = misc::get_master_client(&node_name).await?;
 
     let mut params = HashMap::<String, String>::new();
-    let (ns, full_node_name, unused_args) = get_params(&mut params);
+    let (ns, _full_node_name, _unused_args) = misc::get_params(&mut params);
 
     // tokio::spawn(async mov {
     let topics = master_client.get_published_topics(ns).await?;

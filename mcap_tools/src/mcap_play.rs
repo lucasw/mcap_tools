@@ -1,12 +1,8 @@
 /// get a list of ros topics from the master, optionally loop and show new topics that appear
 /// or note old topics that have gone away
 
-mod misc;
-use misc::get_params;
-use misc::get_master_client;
+use mcap_tools::misc;
 use std::collections::HashMap;
-
-use misc::{get_message_data_with_header, map_mcap};
 
 // roslibrust_codegen_macro::find_and_generate_ros_messages!();
 
@@ -21,8 +17,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut params = HashMap::<String, String>::new();
     params.insert("_name".to_string(), "mcap_play".to_string());
-    let (ns, full_node_name, _unused_args) = get_params(&mut params);
-    let master_client = get_master_client(&full_node_name).await?;
+    let (_ns, full_node_name, _unused_args) = misc::get_params(&mut params);
     let nh = {
         let master_uri = std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
         roslibrust::ros1::NodeHandle::new(&master_uri, &full_node_name).await?
@@ -30,7 +25,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let args: Vec<String> = std::env::args().collect();
     let mcap_name = &args[1];
-    let mapped = map_mcap(mcap_name)?;
+    let mapped = misc::map_mcap(mcap_name)?;
 
     log::info!("opening '{mcap_name}' for playback");
 
@@ -52,7 +47,8 @@ async fn main() -> Result<(), anyhow::Error> {
         match message_raw {
             Ok(message) => {
                 count += 1;
-                if let channel = message.channel {
+                let channel = message.channel;
+                {
                     if channel.message_encoding != "ros1" {
                         // TODO(lucasw) warn on first occurrence
                         continue;
@@ -75,9 +71,9 @@ async fn main() -> Result<(), anyhow::Error> {
                         }
                     }
                     if pubs.contains_key(&channel.topic) {
-                        let msg_with_header = get_message_data_with_header(message.data);
+                        let msg_with_header = misc::get_message_data_with_header(message.data);
                         if let Some(Ok(publisher)) = pubs.get(&channel.topic) {
-                            publisher.publish(&msg_with_header).await;
+                            let _ = publisher.publish(&msg_with_header).await;
                         }
                     }
                 }

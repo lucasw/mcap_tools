@@ -1,13 +1,10 @@
 //! load mcaps and exports all compressed images to disk into directories derived from topics
 //! and filenames using the total nanoseconds of the timestamp
 
-mod misc;
-
 use std::{env, fs, path::PathBuf};
 
-use anyhow::{Context, Result};
-
-use misc::{get_message_data_with_header, map_mcap};
+use anyhow::Result;
+use mcap_tools::misc;
 
 use roslibrust_codegen_macro::find_and_generate_ros_messages;
 
@@ -29,7 +26,7 @@ fn mcap_extract(path: &PathBuf)
         -> Result<(), Box<dyn std::error::Error>> {
     dbg!(path);
 
-    let mapped = map_mcap(path.display().to_string())?;
+    let mapped = misc::map_mcap(path.display().to_string())?;
 
     // let mut count = 0;
     // let mut image_count = 0;
@@ -43,7 +40,7 @@ fn mcap_extract(path: &PathBuf)
                         if schema.name == "sensor_msgs/CompressedImage" {
                             let topic = message.channel.topic.replace("/", "__");
                             // println!("{}", schema.name);
-                            let msg_with_header = get_message_data_with_header(message.data);
+                            let msg_with_header = misc::get_message_data_with_header(message.data);
                             match serde_rosmsg::from_slice::<sensor_msgs::CompressedImage>(&msg_with_header) {
                                 Ok(image_msg) => {
                                     /*
@@ -95,9 +92,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                    .collect();
     paths.sort_by_key(|dir| dir.path());
 
-    let mut ind = 0;
+    // let mut ind = 0;
     for entry in paths {
-        ind += 1;
+        // ind += 1;
         // let entry = entry?;
         match mcap_extract(&entry.path()) {
             Ok(()) => {

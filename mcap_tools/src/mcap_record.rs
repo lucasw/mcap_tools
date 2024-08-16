@@ -1,9 +1,7 @@
 /// get a list of ros topics from the master, optionally loop and show new topics that appear
 /// or note old topics that have gone away
 
-mod misc;
-use misc::get_params;
-use misc::get_master_client;
+use mcap_tools::misc;
 use std::borrow::Cow;
 use std::{collections::BTreeMap, fs, io::BufWriter};
 use std::collections::HashMap;
@@ -24,8 +22,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut params = HashMap::<String, String>::new();
     params.insert("_name".to_string(), "mcap_record".to_string());
-    let (ns, full_node_name, _unused_args) = get_params(&mut params);
-    let master_client = get_master_client(&full_node_name).await?;
+    let (ns, full_node_name, _unused_args) = misc::get_params(&mut params);
+    let master_client = misc::get_master_client(&full_node_name).await?;
     let nh = {
         let master_uri = std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
         roslibrust::ros1::NodeHandle::new(&master_uri, &full_node_name).await?
