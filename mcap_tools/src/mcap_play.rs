@@ -46,17 +46,21 @@ async fn main() -> Result<(), anyhow::Error> {
     for message_raw in mcap::MessageStream::new(&mapped)? {
         match message_raw {
             Ok(message) => {
-                count += 1;
                 let channel = message.channel;
                 {
                     if channel.message_encoding != "ros1" {
                         // TODO(lucasw) warn on first occurrence
+                        log::warn!("{}", channel.message_encoding);
                         continue;
                     }
                     if let Some(schema) = &channel.schema {
+                        if schema.encoding != "ros1msg" {
+                            // TODO(lucasw) warn on first occurrence
+                            log::warn!("{}", schema.encoding);
+                            continue;
+                        }
                         if !pubs.contains_key(&channel.topic) {
-                            // println!("{:?} {}", message.channel, message.sequence);
-                            println!("{} {:?}", channel.topic, schema);
+                            log::debug!("{} {:?}", channel.topic, schema);
                             let publisher = nh.advertise_any(
                                 &channel.topic,
                                 &schema.name,
@@ -69,23 +73,31 @@ async fn main() -> Result<(), anyhow::Error> {
                             pubs.insert(channel.topic.clone(), publisher);
                             // channel.message_encoding.clone());
                         }
+                    } else {
+                        log::warn!("couldn't get schema {:?}", channel.schema);
+                        continue;
                     }
                     if pubs.contains_key(&channel.topic) {
+                        count += 1;
+                        log::debug!("{count} {} publish", channel.topic);
                         let msg_with_header = misc::get_message_data_with_header(message.data);
                         if let Some(Ok(publisher)) = pubs.get(&channel.topic) {
                             let _ = publisher.publish(&msg_with_header).await;
                         }
+                    } else {
+                        log::warn!("no publisher for {}", channel.topic);
+
                     }
                 }
             },
             Err(e) => {
-                println!("{:?}", e);
+                log::warn!("{:?}", e);
             },
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }  // loop through all messages
 
-    log::info!("{count} messages in mcap");
+    log::info!("published {count} messages in mcap");
 
     Ok(())
 }
