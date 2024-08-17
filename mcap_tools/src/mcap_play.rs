@@ -66,9 +66,6 @@ async fn main() -> Result<(), anyhow::Error> {
                                     &channel.topic,
                                     &schema.name,
                                     std::str::from_utf8(&schema.data.clone().into_owned()).unwrap(),
-                                    // TODO(lucasw) should the md5sum be stored in the mcap, or
-                                    // can it be computed from the definition above?
-                                    "*",
                                     10,
                                     false,
                                 )
