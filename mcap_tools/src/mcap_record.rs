@@ -50,6 +50,61 @@ async fn main() -> Result<(), anyhow::Error> {
         });
     }
 
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let receive_messages = Arc::new(AtomicUsize::new(0));
+
+    // create a tokio thread for every topic that appears, and send all received data to a thread
+    // that does writing to mcap
+    // TODO(lucasw) is this any more performant than the writer inside the receive thread?
+    let (sender, receiver) = std::sync::mpsc::sync_channel(8000);
+
+    {
+        let mcap_out = mcap_out.clone();
+        let receive_messages = receive_messages.clone();
+        tokio::spawn(async move {
+            let mut count = 0;
+            loop {
+                let rv = receiver.recv();
+                match rv {
+                    Ok(rv) => {
+                        let (channel_id, arrival_ns_epoch, sequence, data): (
+                            u16,
+                            u64,
+                            u32,
+                            Vec<u8>,
+                        ) = rv;
+                        mcap_out
+                            .lock()
+                            .unwrap()
+                            .write_to_known_channel(
+                                &mcap::records::MessageHeader {
+                                    channel_id,
+                                    sequence,
+                                    log_time: arrival_ns_epoch,
+                                    // TODO(lucasw) get this from somewhere
+                                    publish_time: arrival_ns_epoch,
+                                },
+                                &data[4..], // chop off header bytes
+                            )
+                            .unwrap();
+                        if count % 1000 == 0 {
+                            log::info!(
+                                "{count} written / {} received",
+                                receive_messages.load(Ordering::SeqCst)
+                            );
+                        }
+                        count += 1;
+                    }
+                    Err(e) => {
+                        log::error!("{e:?}");
+                        break;
+                    }
+                }
+            } // loop
+            log::info!("{count} message written");
+        });
+    }
+
     let mut old_topics = HashSet::<(String, String)>::new();
     loop {
         // TODO(lucasw) optionally limit to namespace of this node (once this node can be launched into
@@ -77,25 +132,33 @@ async fn main() -> Result<(), anyhow::Error> {
 
             log::debug!("added {topic_and_type:?}");
             let (topic, topic_type) = topic_and_type.clone();
-            // TODO(lucasw) the type is almost certainly not std_msgs::ByteMultiArray,
-            // but need to provide some type to downstream machinery
-            let queue_size = 500;
+            let queue_size = 2000;
             let mut subscriber = nh.subscribe_any(&topic, queue_size).await?;
 
             // maybe should do arc mutex
             let nh_copy = nh.clone();
             let mcap_out = mcap_out.clone();
+            let sender = sender.clone();
+            let receive_messages = receive_messages.clone();
 
             let schemas_copy = schemas.clone();
+
             let _sub = tokio::spawn(async move {
                 let mut sequence = 0;
                 let mut channel_id = None;
                 // TODO(lucasw) seeing some message arrive repeatedly, but only if the
                 // publisher starts after this node does?
                 while let Some(data) = subscriber.next().await {
+                    // TODO(lucasw) u64 will only get us to the year 2554...
+                    let arrival_ns_epoch = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos() as u64;
+
                     if let Ok(data) = data {
                         // log::debug!("Got raw message data: {} bytes, {:?}", data.len(), data);
                         if channel_id.is_none() {
+                            // setup schema and channel for this topic
                             if !schemas_copy
                                 .lock()
                                 .unwrap()
@@ -104,7 +167,7 @@ async fn main() -> Result<(), anyhow::Error> {
                                 log::debug!("get definition");
                                 let definition =
                                     nh_copy.inner.get_definition(topic.clone()).await.unwrap();
-                                log::debug!("definition: '{definition}'");
+                                // log::debug!("definition: '{definition}'");
                                 let schema = mcap::Schema {
                                     name: topic_type.clone(),
                                     encoding: "ros1msg".to_string(),
@@ -136,27 +199,17 @@ async fn main() -> Result<(), anyhow::Error> {
                                 Some(mcap_out.lock().unwrap().add_channel(&channel).unwrap());
                         }
 
-                        // TODO(lucasw) u64 will only get us to the year 2554...
-                        let ns_epoch = SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap()
-                            .as_nanos() as u64;
-                        mcap_out
-                            .lock()
-                            .unwrap()
-                            .write_to_known_channel(
-                                &mcap::records::MessageHeader {
-                                    channel_id: channel_id.unwrap(),
-                                    sequence,
-                                    log_time: ns_epoch,
-                                    // TODO(lucasw) get this from somewhere
-                                    publish_time: ns_epoch,
-                                },
-                                &data[4..], // chop off header bytes
-                            )
-                            .unwrap();
+                        let send_rv =
+                            sender.send((channel_id.unwrap(), arrival_ns_epoch, sequence, data));
+                        match send_rv {
+                            Ok(()) => {}
+                            Err(e) => {
+                                log::error!("{channel_id:?} {arrival_ns_epoch} {sequence} {e:?}");
+                            }
+                        }
 
                         sequence += 1;
+                        receive_messages.fetch_add(1, Ordering::SeqCst);
                     } else {
                         log::error!("{data:?}");
                     }
