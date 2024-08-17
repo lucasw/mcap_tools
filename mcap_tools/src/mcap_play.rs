@@ -3,8 +3,6 @@
 use mcap_tools::misc;
 use std::collections::HashMap;
 
-// roslibrust_codegen_macro::find_and_generate_ros_messages!();
-
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     // view log messages from roslibrust in stdout

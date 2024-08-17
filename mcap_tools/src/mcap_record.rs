@@ -8,8 +8,6 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use std::{collections::BTreeMap, fs, io::BufWriter};
 
-roslibrust_codegen_macro::find_and_generate_ros_messages!();
-
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     // view log messages from roslibrust in stdout
