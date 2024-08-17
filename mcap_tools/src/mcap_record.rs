@@ -1,13 +1,12 @@
 /// get a list of ros topics from the master, optionally loop and show new topics that appear
 /// or note old topics that have gone away
-
 use mcap_tools::misc;
 use std::borrow::Cow;
-use std::{collections::BTreeMap, fs, io::BufWriter};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use std::{collections::BTreeMap, fs, io::BufWriter};
 
 roslibrust_codegen_macro::find_and_generate_ros_messages!();
 
@@ -25,7 +24,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let (ns, full_node_name, _unused_args) = misc::get_params(&mut params);
     let master_client = misc::get_master_client(&full_node_name).await?;
     let nh = {
-        let master_uri = std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
+        let master_uri =
+            std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
         roslibrust::ros1::NodeHandle::new(&master_uri, &full_node_name).await?
     };
 
@@ -98,9 +98,14 @@ async fn main() -> Result<(), anyhow::Error> {
                     if let Ok(data) = data {
                         // log::debug!("Got raw message data: {} bytes, {:?}", data.len(), data);
                         if channel_id.is_none() {
-                            if !schemas_copy.lock().unwrap().contains_key(&topic_type.clone()) {
+                            if !schemas_copy
+                                .lock()
+                                .unwrap()
+                                .contains_key(&topic_type.clone())
+                            {
                                 log::debug!("get definition");
-                                let definition = nh_copy.inner.get_definition(topic.clone()).await.unwrap();
+                                let definition =
+                                    nh_copy.inner.get_definition(topic.clone()).await.unwrap();
                                 log::debug!("definition: '{definition}'");
                                 let schema = mcap::Schema {
                                     name: topic_type.clone(),
@@ -109,10 +114,18 @@ async fn main() -> Result<(), anyhow::Error> {
                                     data: Cow::from(definition.as_bytes().to_owned()),
                                 };
                                 let schema = Some(Arc::new(schema.to_owned()));
-                                schemas_copy.lock().unwrap().insert(topic_type.to_owned().to_string(), schema);
+                                schemas_copy
+                                    .lock()
+                                    .unwrap()
+                                    .insert(topic_type.to_owned().to_string(), schema);
                                 // log::warn!("can't get definition {topic} {topic_type}");
                             }
-                            let schema = schemas_copy.lock().unwrap().get(&topic_type).unwrap().clone();
+                            let schema = schemas_copy
+                                .lock()
+                                .unwrap()
+                                .get(&topic_type)
+                                .unwrap()
+                                .clone();
 
                             let channel = mcap::Channel {
                                 topic: topic.clone(),
@@ -121,29 +134,37 @@ async fn main() -> Result<(), anyhow::Error> {
                                 metadata: BTreeMap::default(),
                             };
 
-                            channel_id = Some(mcap_out.lock().unwrap().add_channel(&channel).unwrap());
+                            channel_id =
+                                Some(mcap_out.lock().unwrap().add_channel(&channel).unwrap());
                         }
 
                         // TODO(lucasw) u64 will only get us to the year 2554...
-                        let ns_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64;
-                        mcap_out.lock().unwrap().write_to_known_channel(
-                            &mcap::records::MessageHeader {
-                                channel_id: channel_id.unwrap(),
-                                sequence,
-                                log_time: ns_epoch,
-                                // TODO(lucasw) get this from somewhere
-                                publish_time: ns_epoch,
-                            },
-                            &data[4..],  // chop off header bytes
-                        ).unwrap();
+                        let ns_epoch = SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos() as u64;
+                        mcap_out
+                            .lock()
+                            .unwrap()
+                            .write_to_known_channel(
+                                &mcap::records::MessageHeader {
+                                    channel_id: channel_id.unwrap(),
+                                    sequence,
+                                    log_time: ns_epoch,
+                                    // TODO(lucasw) get this from somewhere
+                                    publish_time: ns_epoch,
+                                },
+                                &data[4..], // chop off header bytes
+                            )
+                            .unwrap();
 
                         sequence += 1;
                     } else {
                         log::error!("{data:?}");
                     }
-                }  // get new messages in loop
-            });  // subscriber
-        }  // loop through current topics
+                } // get new messages in loop
+            }); // subscriber
+        } // loop through current topics
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         old_topics = cur_topics.clone().to_owned();

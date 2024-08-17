@@ -1,6 +1,5 @@
 /// get a list of ros topics from the master, optionally loop and show new topics that appear
 /// or note old topics that have gone away
-
 use mcap_tools::misc;
 use std::collections::HashMap;
 
@@ -19,7 +18,8 @@ async fn main() -> Result<(), anyhow::Error> {
     params.insert("_name".to_string(), "mcap_play".to_string());
     let (_ns, full_node_name, _unused_args) = misc::get_params(&mut params);
     let nh = {
-        let master_uri = std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
+        let master_uri =
+            std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
         roslibrust::ros1::NodeHandle::new(&master_uri, &full_node_name).await?
     };
 
@@ -61,15 +61,18 @@ async fn main() -> Result<(), anyhow::Error> {
                         }
                         if !pubs.contains_key(&channel.topic) {
                             log::debug!("{} {:?}", channel.topic, schema);
-                            let publisher = nh.advertise_any(
-                                &channel.topic,
-                                &schema.name,
-                                std::str::from_utf8(&schema.data.clone().into_owned()).unwrap(),
-                                // TODO(lucasw) should the md5sum be stored in the mcap, or
-                                // can it be computed from the definition above?
-                                "*",
-                                10,
-                                false).await;
+                            let publisher = nh
+                                .advertise_any(
+                                    &channel.topic,
+                                    &schema.name,
+                                    std::str::from_utf8(&schema.data.clone().into_owned()).unwrap(),
+                                    // TODO(lucasw) should the md5sum be stored in the mcap, or
+                                    // can it be computed from the definition above?
+                                    "*",
+                                    10,
+                                    false,
+                                )
+                                .await;
                             pubs.insert(channel.topic.clone(), publisher);
                             // channel.message_encoding.clone());
                         }
@@ -86,16 +89,15 @@ async fn main() -> Result<(), anyhow::Error> {
                         }
                     } else {
                         log::warn!("no publisher for {}", channel.topic);
-
                     }
                 }
-            },
+            }
             Err(e) => {
                 log::warn!("{:?}", e);
-            },
+            }
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    }  // loop through all messages
+    } // loop through all messages
 
     log::info!("published {count} messages in mcap");
 

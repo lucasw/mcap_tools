@@ -1,6 +1,5 @@
 /// get a list of ros topics from the master, optionally loop and show new topics that appear
 /// or note old topics that have gone away
-
 use mcap_tools::misc;
 use std::collections::HashMap;
 use tracing_subscriber;

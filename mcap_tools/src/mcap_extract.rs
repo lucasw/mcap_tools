@@ -22,8 +22,7 @@ fn ros_to_ns_string(ros_stamp: roslibrust_codegen::Time) -> f64 {
 }
 */
 
-fn mcap_extract(path: &PathBuf)
-        -> Result<(), Box<dyn std::error::Error>> {
+fn mcap_extract(path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     dbg!(path);
 
     let mapped = misc::map_mcap(path.display().to_string())?;
@@ -41,7 +40,9 @@ fn mcap_extract(path: &PathBuf)
                             let topic = message.channel.topic.replace("/", "__");
                             // println!("{}", schema.name);
                             let msg_with_header = misc::get_message_data_with_header(message.data);
-                            match serde_rosmsg::from_slice::<sensor_msgs::CompressedImage>(&msg_with_header) {
+                            match serde_rosmsg::from_slice::<sensor_msgs::CompressedImage>(
+                                &msg_with_header,
+                            ) {
                                 Ok(image_msg) => {
                                     /*
                                     println!("{:?} {:?} -> {:?} {}",
@@ -52,28 +53,29 @@ fn mcap_extract(path: &PathBuf)
                                     );
                                     */
 
-                                    let image_name = format!("{topic}/{}{:0>9}.{}",
+                                    let image_name = format!(
+                                        "{topic}/{}{:0>9}.{}",
                                         image_msg.header.stamp.secs,
                                         image_msg.header.stamp.nsecs,
                                         image_msg.format,
-                                        );
+                                    );
                                     println!("{image_name}");
                                     fs::create_dir_all(topic)?;
                                     fs::write(image_name, &image_msg.data)?;
-                                },
+                                }
                                 Err(err) => {
                                     println!("{err:?}");
-                                },
+                                }
                             }
                         }
-                    },
-                    None => {},
+                    }
+                    None => {}
                 }
             }
             Err(e) => {
                 println!("{:?}", e);
-            },
-        }  // message_raw
+            }
+        } // message_raw
     }
 
     Ok(())
@@ -87,9 +89,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // dbg!(args);
     dbg!(path);
 
-    let mut paths: Vec<_> = std::fs::read_dir(path).unwrap()
-                                                   .map(|r| r.unwrap())
-                                                   .collect();
+    let mut paths: Vec<_> = std::fs::read_dir(path)
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
     paths.sort_by_key(|dir| dir.path());
 
     // let mut ind = 0;
@@ -97,11 +100,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // ind += 1;
         // let entry = entry?;
         match mcap_extract(&entry.path()) {
-            Ok(()) => {
-            },
+            Ok(()) => {}
             Err(e) => {
                 println!("{:?}", e);
-            },
+            }
         }
     }
 

@@ -1,12 +1,7 @@
 use anyhow::{Context, Result};
 use camino::Utf8Path;
 use memmap::Mmap;
-use roslibrust::ros1::{
-    MasterClient,
-    NodeServerHandle,
-    XmlRpcServer,
-    determine_addr,
-};
+use roslibrust::ros1::{determine_addr, MasterClient, NodeServerHandle, XmlRpcServer};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tracing;
@@ -16,7 +11,8 @@ roslibrust_codegen_macro::find_and_generate_ros_messages!();
 pub async fn get_master_client(node_name: &str) -> Result<MasterClient, anyhow::Error> {
     // copied this out of roslibrust actor.rs Node::new(), seemed like bare minimum
     // to make a valid master client
-    let master_uri = std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
+    let master_uri =
+        std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
 
     let (node_sender, _node_receiver) = mpsc::unbounded_channel();
     let xml_server_handle = NodeServerHandle {
@@ -31,7 +27,12 @@ pub async fn get_master_client(node_name: &str) -> Result<MasterClient, anyhow::
     let xmlrpc_server = XmlRpcServer::new(addr, xml_server_handle)?;
     let client_uri = format!("http://{hostname}:{}", xmlrpc_server.port());
 
-    let master_client = MasterClient::new(master_uri.clone(), client_uri.clone(), node_name.to_string()).await?;
+    let master_client = MasterClient::new(
+        master_uri.clone(),
+        client_uri.clone(),
+        node_name.to_string(),
+    )
+    .await?;
 
     tracing::info!("{node_name} connected to roscore at {master_uri} from {client_uri}");
 
@@ -43,7 +44,7 @@ pub async fn get_master_client(node_name: &str) -> Result<MasterClient, anyhow::
 /// params.insert("update_rate".to_string(), "5.0".to_string());
 ///
 /// returns full path node name, the namespace, and a vector of unused args
-pub fn get_params(params: &mut HashMap::<String, String>) -> (String, String, Vec<String>) {
+pub fn get_params(params: &mut HashMap<String, String>) -> (String, String, Vec<String>) {
     // TODO(lucasw) generate a unique node name
     // let _ = params.try_insert("_name".to_string(), "node_tbd".to_string());
     if !params.contains_key("_name") {
@@ -77,11 +78,7 @@ pub fn get_params(params: &mut HashMap::<String, String>) -> (String, String, Ve
     println!("{args2:?}");
 
     let ns = params.remove("_ns").unwrap();
-    let full_node_name = &format!(
-        "/{}/{}",
-        &ns,
-        &params["_name"],
-        ).replace("//", "/");
+    let full_node_name = &format!("/{}/{}", &ns, &params["_name"],).replace("//", "/");
 
     (ns.to_string(), full_node_name.to_string(), args2)
 }
