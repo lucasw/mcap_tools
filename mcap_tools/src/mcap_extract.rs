@@ -37,7 +37,7 @@ fn mcap_extract(path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
                 match &message.channel.schema {
                     Some(schema) => {
                         if schema.name == "sensor_msgs/CompressedImage" {
-                            let topic = message.channel.topic.replace("/", "__");
+                            let topic = message.channel.topic.replace('/', "__");
                             // println!("{}", schema.name);
                             let msg_with_header = misc::get_message_data_with_header(message.data);
                             match serde_rosmsg::from_slice::<sensor_msgs::CompressedImage>(

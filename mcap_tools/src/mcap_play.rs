@@ -63,7 +63,7 @@ async fn main() -> Result<(), anyhow::Error> {
                                 .advertise_any(
                                     &channel.topic,
                                     &schema.name,
-                                    std::str::from_utf8(&schema.data.clone().into_owned()).unwrap(),
+                                    std::str::from_utf8(&schema.data.clone()).unwrap(),
                                     10,
                                     false,
                                 )

@@ -127,7 +127,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
                             let channel = mcap::Channel {
                                 topic: topic.clone(),
-                                schema: schema,
+                                schema,
                                 message_encoding: "ros1".to_string(),
                                 metadata: BTreeMap::default(),
                             };

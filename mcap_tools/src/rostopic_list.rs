@@ -2,7 +2,6 @@
 /// or note old topics that have gone away
 use mcap_tools::misc;
 use std::collections::HashMap;
-use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -11,12 +10,11 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let node_name = "/topic_list";
 
-    let master_client = misc::get_master_client(&node_name).await?;
+    let master_client = misc::get_master_client(node_name).await?;
 
     let mut params = HashMap::<String, String>::new();
     let (ns, _full_node_name, _unused_args) = misc::get_params(&mut params);
 
-    // tokio::spawn(async mov {
     let topics = master_client.get_published_topics(ns).await?;
     for (topic_name, topic_type) in topics {
         println!("{topic_name} - {topic_type}");

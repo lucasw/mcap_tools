@@ -63,17 +63,17 @@ pub fn get_params(params: &mut HashMap<String, String>) -> (String, String, Vec<
         }
 
         let (mut key, val) = (key_val[0].to_string(), key_val[1].to_string());
-        if !key.starts_with("_") {
+        if !key.starts_with('_') {
             println!("unused arg pair {key}:={val}- need to prefix name with underscore");
             continue;
         }
         key.replace_range(0..1, "");
 
-        if params.contains_key(&key) {
-            params.insert(key, val);
-        } else {
+        if !params.contains_key(&key) {
             println!("unused '{key}' '{val}'");
+            continue;
         }
+        params.insert(key, val);
     }
     println!("{args2:?}");
 
@@ -90,7 +90,7 @@ pub fn map_mcap<P: AsRef<Utf8Path>>(p: P) -> Result<Mmap> {
 }
 
 // TODO(lucasw) https://github.com/Carter12s/roslibrust/issues/158#issuecomment-2187839437
-pub fn get_message_data_with_header<'a>(raw_message_data: std::borrow::Cow<'a, [u8]>) -> Vec<u8> {
+pub fn get_message_data_with_header(raw_message_data: std::borrow::Cow<'_, [u8]>) -> Vec<u8> {
     let len_header = raw_message_data.len() as u32;
     let mut msg_with_header = Vec::from(len_header.to_le_bytes());
     let mut message_data = Vec::from(raw_message_data);
