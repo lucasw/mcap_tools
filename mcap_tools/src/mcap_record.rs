@@ -31,14 +31,28 @@ async fn main() -> Result<(), anyhow::Error> {
             )
             .required(false)
         )
+        .arg(
+            arg!(
+                -x --exclude <EXCLUDE_REGEX> "exclude topics matching the follow regular expression\r(subtracts from -a or regex"
+            )
+            .required(false)
+        )
         .get_matches_from(unused_args);
 
-    let re;
+    let include_re;
     if let Some(regex_str) = matches.get_one::<String>("regex") {
-        re = Some(Regex::new(regex_str)?);
-        log::info!("regular expression {re:?}");
+        include_re = Some(Regex::new(regex_str)?);
+        log::info!("include regular expression {include_re:?}");
     } else {
-        re = None;
+        include_re = None;
+    }
+
+    let exclude_re;
+    if let Some(regex_str) = matches.get_one::<String>("exclude") {
+        exclude_re = Some(Regex::new(regex_str)?);
+        log::info!("exclude regular expression {exclude_re:?}");
+    } else {
+        exclude_re = None;
     }
 
     let master_client = misc::get_master_client(&full_node_name).await?;
@@ -154,9 +168,16 @@ async fn main() -> Result<(), anyhow::Error> {
             let (topic, topic_type) = topic_and_type.clone();
 
             // TODO(lucasw) topic_type matching would be useful as well
-            if let Some(ref re) = re {
+            if let Some(ref re) = include_re {
                 if re.captures(&topic).is_none() {
                     log::debug!("not recording from {topic}");
+                    continue;
+                }
+            }
+
+            if let Some(ref re) = exclude_re {
+                if re.captures(&topic).is_some() {
+                    log::info!("excluding recording from {topic}");
                     continue;
                 }
             }
