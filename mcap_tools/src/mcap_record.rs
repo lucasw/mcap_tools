@@ -1,6 +1,7 @@
 /// get a list of ros topics from the master, optionally loop and show new topics that appear
 /// or note old topics that have gone away
 use mcap_tools::misc;
+use regex::Regex;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -12,14 +13,24 @@ use std::{collections::BTreeMap, fs, io::BufWriter};
 async fn main() -> Result<(), anyhow::Error> {
     // view log messages from roslibrust in stdout
     simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Debug)
+        .with_level(log::LevelFilter::Info)
         // .without_timestamps() // required for running wsl2
         .init()
         .unwrap();
 
     let mut params = HashMap::<String, String>::new();
     params.insert("_name".to_string(), "mcap_record".to_string());
-    let (ns, full_node_name, _unused_args) = misc::get_params(&mut params);
+    let (ns, full_node_name, unused_args) = misc::get_params(&mut params);
+
+    let re;
+    if unused_args.len() > 1 {
+        let regex_str = &unused_args[1];
+        re = Some(Regex::new(regex_str)?);
+        log::debug!("{re:?}");
+    } else {
+        re = None;
+    }
+
     let master_client = misc::get_master_client(&full_node_name).await?;
     let nh = {
         let master_uri =
@@ -130,8 +141,17 @@ async fn main() -> Result<(), anyhow::Error> {
                 continue;
             }
 
-            log::debug!("added {topic_and_type:?}");
             let (topic, topic_type) = topic_and_type.clone();
+
+            // TODO(lucasw) topic_type matching would be useful as well
+            if let Some(ref re) = re {
+                if re.captures(&topic).is_none() {
+                    log::debug!("not recording from {topic}");
+                    continue;
+                }
+            }
+
+            log::info!("recording from {topic} {topic_type}");
             let queue_size = 2000;
             let mut subscriber = nh.subscribe_any(&topic, queue_size).await?;
 
