@@ -1,5 +1,6 @@
 /// get a list of ros topics from the master, optionally loop and show new topics that appear
 /// or note old topics that have gone away
+use clap::{arg, command};
 use mcap_tools::misc;
 use regex::Regex;
 use std::borrow::Cow;
@@ -20,13 +21,22 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut params = HashMap::<String, String>::new();
     params.insert("_name".to_string(), "mcap_record".to_string());
+    // TODO(lucasw) parse := ros arguments with clap?
     let (ns, full_node_name, unused_args) = misc::get_params(&mut params);
 
+    let matches = command!()
+        .arg(
+            arg!(
+                -e --regex <REGEX> "match topics using regular expressions"
+            )
+            .required(false)
+        )
+        .get_matches_from(unused_args);
+
     let re;
-    if unused_args.len() > 1 {
-        let regex_str = &unused_args[1];
+    if let Some(regex_str) = matches.get_one::<String>("regex") {
         re = Some(Regex::new(regex_str)?);
-        log::debug!("{re:?}");
+        log::info!("regular expression {re:?}");
     } else {
         re = None;
     }
