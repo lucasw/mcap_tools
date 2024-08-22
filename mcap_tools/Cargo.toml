@@ -12,6 +12,7 @@ clap = { version = "4.5.16", features = ["cargo"] }
 log = "0.4.22"
 mcap = "0.9.1"
 memmap = "0.7.0"
+# rand = "0.8.5"
 regex = "1.10.6"
 serde_rosmsg = "0.2.0"
 simple_logger = "5.0.0"
