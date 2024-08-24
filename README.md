@@ -4,7 +4,7 @@
 
 Record all topics with sensors or odom in the full topic name to an mcap:
 ```
-ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs` cargo build --release -- "(.*)sensors(.*)|(.*)odom(.*)"
+ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs` cargo run --release --bin mcap_record -- --regex "(.*)sensors(.*)|(.*)odom(.*)"
 ```
 
 ```
