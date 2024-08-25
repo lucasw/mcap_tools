@@ -50,6 +50,11 @@ name = "mcap_extract"
 path = "src/mcap_extract.rs"
 
 [[bin]]
+name = "mcap_intersection"
+path = "src/mcap_intersection.rs"
+
+
+[[bin]]
 name = "mcap_play"
 path = "src/mcap_play.rs"
 
