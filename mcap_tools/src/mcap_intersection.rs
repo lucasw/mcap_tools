@@ -30,11 +30,12 @@ async fn mcap_to_hashset(mcap_name: &str) -> Result<HashSet<(String, String, u64
                     }
                     */
                     if let Some(schema) = &channel.schema {
-                        let msg_tuple = (channel.topic.clone(), schema.name.clone(), message.publish_time);
-                        let msg_tuple_b = (channel.topic.clone(), schema.name.clone(), message.publish_time);
-                        if count % 10000 == 0 { log::debug!("{mcap_name} {} {msg_tuple:?} {:?}",
-                            message.sequence,
-                            msg_tuple == msg_tuple_b ); }
+                        // TODO(lucasw) remove most of the timestamp precision to make timestamps
+                        // more likely to line up
+                        // let timestamp = message.publish_time / 100_000_000;
+                        let timestamp = message.publish_time;
+                        let msg_tuple = (channel.topic.clone(), schema.name.clone(), timestamp);
+                        if count % 10000 == 0 { log::debug!("{mcap_name} {} {msg_tuple:?}", message.sequence); }
                         msg_hash.insert(msg_tuple);
                     } else {
                         log::warn!("{mcap_name} couldn't get schema in {:?}", channel.schema);
