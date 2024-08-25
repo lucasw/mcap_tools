@@ -256,6 +256,14 @@ async fn main() -> Result<(), anyhow::Error> {
             )
             .required(false)
         )
+        .arg(
+            arg!(
+                // TODO(lucasw) can't have dashes in -- name in clap here, so no 'output-prefix'?
+                -o --outputprefix <PREFIX> "Prepend PREFIX to beginning of bag name before date stamp"
+            )
+            .default_value("")
+            .required(false)
+        )
         .get_matches_from(unused_args);
 
     let size_limit = *matches.get_one::<u64>("size").unwrap();
@@ -276,6 +284,10 @@ async fn main() -> Result<(), anyhow::Error> {
         exclude_re = None;
     }
 
+    let now = chrono::prelude::Local::now();
+    let time_str = format!("{}_{}_", now.format("%Y_%m_%d_%H_%M_%S").to_string(), now.offset().to_string());
+    let prefix = matches.get_one::<String>("outputprefix").unwrap().to_owned() + &time_str;
+
     let master_client = misc::get_master_client(&full_node_name).await?;
     let nh = {
         let master_uri =
@@ -291,7 +303,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let (msg_sender, msg_receiver) = mpsc::sync_channel(24000);
 
     let _ = mcap_record(
-        "out".to_string(),
+        prefix.to_string(),
         channel_receiver,
         msg_receiver,
         num_received_messages.clone(),
