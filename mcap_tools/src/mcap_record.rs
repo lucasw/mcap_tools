@@ -284,8 +284,11 @@ async fn main() -> Result<(), anyhow::Error> {
         exclude_re = None;
     }
 
-    let now = chrono::prelude::Local::now();
-    let time_str = format!("{}_{}_", now.format("%Y_%m_%d_%H_%M_%S").to_string(), now.offset().to_string());
+    let time_str = {
+        let now = chrono::prelude::Local::now();
+        let offset = now.offset().to_string().replace(":", "_");
+        format!("{}_{}_", now.format("%Y_%m_%d_%H_%M_%S").to_string(), offset)
+    };
     let prefix = matches.get_one::<String>("outputprefix").unwrap().to_owned() + &time_str;
 
     let master_client = misc::get_master_client(&full_node_name).await?;

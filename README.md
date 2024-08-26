@@ -33,12 +33,12 @@ mcap_record --regex "(.*)sensors(.*)|(.*)odom(.*)" --exclude "(.*)image(.*)" --o
 the output files will look like and will increment the final five digits to 00001 and so on when the size limit is reached (2048MB by default)
 
 ```
-data_2024_08_26_09_15_08_-07:00_00000.mcap
-data_2024_08_26_09_15_08_-07:00_00001.mcap
+data_2024_08_26_09_15_08_-07_00_00000.mcap
+data_2024_08_26_09_15_08_-07_00_00001.mcap
 ...
 ```
 
-(TODO(lucasw) replace ':' with underscore, and make the date optional)
+(TODO(lucasw) make the date optional)
 
 ## build
 
