@@ -13,8 +13,15 @@ use std::time::SystemTime;
 use std::{collections::BTreeMap, fs, io::BufWriter};
 use tokio::time::Duration;
 
+fn rename_active(mcap_name: &str) -> std::io::Result<()> {
+    // TODO(lucasw) only replace last occurence
+    let inactive_name = mcap_name.replace(".mcap.active", ".mcap");
+    std::fs::rename(mcap_name, inactive_name)
+}
+
 // start all the threads
 async fn mcap_record(
+    full_node_name: String,
     prefix: String,
     channel_receiver: mpsc::Receiver<(String, String, String)>,
     msg_receiver: mpsc::Receiver<(String, String, u64, u32, Vec<u8>)>,
@@ -28,13 +35,14 @@ async fn mcap_record(
     // Setup a task to kill this process when ctrl_c comes in:
     {
         let finish = finish.clone();
+        let full_node_name = full_node_name.clone();
         tokio::spawn(async move {
             tokio::signal::ctrl_c().await.unwrap();
             // TODO(lucasw) give the msg receiver thread a chance to cleanly finish the mcap
             finish.store(true, Ordering::SeqCst);
-            log::warn!("ctrl-c, going to finish");
+            log::warn!("{full_node_name} ctrl-c, going to finish");
             tokio::time::sleep(Duration::from_secs(2)).await;
-            log::error!("exiting without finished mcap");
+            log::error!("{full_node_name} exiting without finished mcap");
             std::process::exit(0);
         });
     }
@@ -95,19 +103,23 @@ async fn mcap_record(
                 if let Some(ref file_handle) = file_handle {
                     let file_handle_metadata = file_handle.metadata();
                     if let Ok(file_handle_metadata) = file_handle_metadata {
-                        let size_bytes = file_handle_metadata.len() as f64 / (1024.0 * 1024.0);
-                        if size_bytes > size_limit as f64 {
-                            log::info!("mcap {mcap_name} size: {size_bytes}MB > {size_limit}MB, rolling over");
+                        let size_mb = file_handle_metadata.len() as f64 / (1024.0 * 1024.0);
+                        if count % 2000 == 0 {
+                            log::info!("size {} / {size_limit} MB", size_mb as u64);
+                        }
+                        if size_mb > size_limit as f64 {
+                            log::info!("{full_node_name} mcap {mcap_name} size: {size_mb}MB > {size_limit}MB, rolling over");
                             mcap_out.unwrap().finish().unwrap();
                             mcap_out = None;
+                            let _ = rename_active(&mcap_name);
                         }
                     }
                 }
             }
 
             if mcap_out.is_none() {
-                mcap_name = format!("{}{:05}.mcap", prefix, mcap_sequence);
-                log::info!("new mcap {mcap_name}, size limit {size_limit}MB");
+                mcap_name = format!("{}{:05}.mcap.active", prefix, mcap_sequence);
+                log::info!("{full_node_name} new mcap {mcap_name}, size limit {size_limit}MB");
                 mcap_sequence += 1;
                 match fs::File::create(mcap_name.clone()) {
                     Ok(file_handle_raw) => {
@@ -122,15 +134,16 @@ async fn mcap_record(
                         channel_ids.clear();
                     }
                     Err(e) => {
-                        log::error!("couldn't create '{mcap_name}' {e:?}");
+                        log::error!("{full_node_name} couldn't create '{mcap_name}' {e:?}");
                         std::process::exit(2);
                     }
                 }
             }
 
             if finish.load(Ordering::SeqCst) {
-                log::warn!("finishing writing to {mcap_name} then exiting");
+                log::warn!("{full_node_name} finishing writing to {mcap_name} then exiting");
                 mcap_out.unwrap().finish().unwrap();
+                let _ = rename_active(&mcap_name);
                 std::process::exit(0);
             }
 
@@ -156,7 +169,7 @@ async fn mcap_record(
                             // the message could be received before the schema has been created
                             // TODO(lucasw) replace with all in one block get-or-fail
                             if !schemas.lock().unwrap().contains_key(&topic_type) {
-                                log::warn!("no schema for '{topic_type}' yet, dropping message");
+                                log::warn!("{full_node_name} no schema for '{topic_type}' yet, dropping message");
                                 continue;
                             }
 
@@ -172,7 +185,7 @@ async fn mcap_record(
                             let channel_id =
                                 mcap_out.as_mut().unwrap().add_channel(&channel).unwrap();
                             vacant.insert(channel_id);
-                            log::debug!("{topic} {topic_type} new channel {channel:?}");
+                            log::debug!("{full_node_name} {topic} {topic_type} new channel {channel:?}");
                             channel_id
                         }
                     };
@@ -192,8 +205,8 @@ async fn mcap_record(
                         )
                         .unwrap();
                     if count % 2000 == 0 {
-                        log::info!(
-                            "{count} written / {} received",
+                        log::debug!(
+                            "{full_node_name} {count} written / {} received",
                             num_received_messages.load(Ordering::SeqCst)
                         );
                     }
@@ -204,18 +217,19 @@ async fn mcap_record(
                     // pressed
                     if e == mpsc::RecvTimeoutError::Timeout {
                         if finish.load(Ordering::SeqCst) {
-                            log::warn!("finishing writing to {mcap_name} then exiting");
+                            log::warn!("{full_node_name} finishing writing to {mcap_name} then exiting");
                             mcap_out.unwrap().finish().unwrap();
+                            let _ = rename_active(&mcap_name);
                             std::process::exit(0);
                         }
                         continue;
                     }
-                    log::error!("{e:?}");
+                    log::error!("{full_node_name} {e:?}");
                     break;
                 }
             }
         } // loop
-        log::info!("{count} message written");
+        log::info!("{full_node_name} {count} message written");
     });
 
     Ok(())
@@ -306,6 +320,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let (msg_sender, msg_receiver) = mpsc::sync_channel(24000);
 
     let _ = mcap_record(
+        full_node_name,
         prefix.to_string(),
         channel_receiver,
         msg_receiver,
