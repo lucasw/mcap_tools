@@ -1,0 +1,19 @@
+<package format="2">
+  <name>cmd_wrapper</name>
+  <version>0.0.1</version>
+  <description>
+    Launch a non-ros application with rosrun or node within a launch file
+  </description>
+
+  <author>Lucas Walter</author>
+  <maintainer email="wsacul@gmail.com" />
+  <license>BSD 3-Clause</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>roslint</build_depend>
+
+  <exec_depend>roslint</exec_depend>
+
+</package>
+
