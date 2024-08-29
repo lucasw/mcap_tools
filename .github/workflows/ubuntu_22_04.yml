@@ -1,0 +1,50 @@
+name: Ubuntu 22.04 build with debian ros packages along with source packages
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  ubuntu2204:
+    runs-on: ubuntu-22.04
+
+    # env:
+      # roslibrust would need this set but going to override it anyhow
+      # ROS_PACKAGE_PATH: /usr/share
+
+    steps:
+      - name: git clone this
+        uses: actions/checkout@v4
+
+      - name: os version
+        run: |
+          lsb_release -a
+
+      - name: apt update
+        run: |
+          sudo apt-get update
+
+      - name: apt upgrade
+        run: |
+          sudo apt-get upgrade
+
+      - name: apt rust installs
+        run: |
+          sudo apt-get install -yqq cargo
+          sudo apt-get install -yqq rustc
+          cargo --version
+          rustc --version
+
+      - name: more apt installs
+        run: |
+          sudo apt install -yqq python3-rosmsg rospack-tools libsensor-msgs-dev libstd-msgs-dev libgeometry-msgs-dev ros-sensor-msgs ros-std-msgs ros-geometry-msgs cargo pkg-config
+          sudo apt install -yqq librust-openssl-dev
+          rospack find geometry_msgs
+
+      - name:
+        run: |
+          # TODO(lucasw) build docs, and run tests
+          cd mcap_tools/mcap_tools
+          ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs` cargo build --release
+          target/release/mcap_record --version
+          target/release/mcap_record --help
