@@ -15,6 +15,12 @@ jobs:
     steps:
       - name: git clone this
         uses: actions/checkout@v4
+        with:
+          path: mcap_tools
+
+      - name: os version
+        run: |
+          ls -l mcap_tools/mcap_tools
 
       - name: os version
         run: |
