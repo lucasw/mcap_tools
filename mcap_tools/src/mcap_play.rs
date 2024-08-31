@@ -7,7 +7,7 @@ use std::collections::HashMap;
 async fn main() -> Result<(), anyhow::Error> {
     // view log messages from roslibrust in stdout
     simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Debug)
+        .with_level(log::LevelFilter::Info)
         // .without_timestamps() // required for running wsl2
         .init()
         .unwrap();
@@ -38,6 +38,9 @@ async fn main() -> Result<(), anyhow::Error> {
         });
     }
 
+    let mut t0 = None;
+    let mut t_old = 0.0;
+
     let mut pubs = HashMap::new();
 
     let mut count = 0;
@@ -58,7 +61,7 @@ async fn main() -> Result<(), anyhow::Error> {
                             continue;
                         }
                         if !pubs.contains_key(&channel.topic) {
-                            log::debug!("{} {:?}", channel.topic, schema);
+                            log::info!("{} {:?}", channel.topic, schema);
                             let publisher = nh
                                 .advertise_any(
                                     &channel.topic,
@@ -80,7 +83,23 @@ async fn main() -> Result<(), anyhow::Error> {
                         log::debug!("{count} {} publish", channel.topic);
                         let msg_with_header = misc::get_message_data_with_header(message.data);
                         if let Some(Ok(publisher)) = pubs.get(&channel.topic) {
+                            let t_cur = message.log_time as f64 / 1e9;
+                            // initialize the start time
+                            if t0.is_none() {
+                                t0 = Some(t_cur);
+                                t_old = t_cur;
+                                log::info!("start time {t_cur}s");
+                            }
+
+                            let dt = t_cur - t_old;
+                            if dt > 0.0 {
+                                tokio::time::sleep(tokio::time::Duration::from_millis((dt * 1000.0) as u64)).await;
+                            }
+                            t_old = t_cur;
+
                             let _ = publisher.publish(&msg_with_header).await;
+
+                            // TODO(lucasw) publish a clock message
                         }
                     } else {
                         log::warn!("no publisher for {}", channel.topic);
@@ -91,7 +110,6 @@ async fn main() -> Result<(), anyhow::Error> {
                 log::warn!("{:?}", e);
             }
         }
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     } // loop through all messages
 
     log::info!("published {count} messages in mcap");

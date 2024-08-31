@@ -18,7 +18,7 @@ jobs:
         with:
           path: mcap_tools
 
-      - name: os version
+      - name: show source
         run: |
           ls -l mcap_tools/mcap_tools
 
