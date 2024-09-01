@@ -109,12 +109,12 @@ async fn main() -> Result<(), anyhow::Error> {
     let msg_hash0_unique: HashSet<(String, String, u64)> = msg_hash0
         .iter()
         .filter(|m| !common_msgs.contains(m))
-        .map(|m| m.clone())
+        .cloned()
         .collect();
     let msg_hash1_unique: HashSet<(String, String, u64)> = msg_hash1
         .iter()
         .filter(|m| !common_msgs.contains(m))
-        .map(|m| m.clone())
+        .cloned()
         .collect();
 
     log::info!(
