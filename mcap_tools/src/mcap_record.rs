@@ -304,10 +304,10 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let time_str = {
         let now = chrono::prelude::Local::now();
-        let offset = now.offset().to_string().replace(":", "_");
+        let offset = now.offset().to_string().replace(':', "_");
         format!(
             "{}_{}_",
-            now.format("%Y_%m_%d_%H_%M_%S").to_string(),
+            now.format("%Y_%m_%d_%H_%M_%S"),
             offset
         )
     };
