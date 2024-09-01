@@ -1,7 +1,9 @@
 /// get a list of ros topics from the master, optionally loop and show new topics that appear
 /// or note old topics that have gone away
+use chrono::prelude::DateTime;
 use mcap_tools::misc;
 use std::collections::HashMap;
+use std::time::SystemTime;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -38,12 +40,13 @@ async fn main() -> Result<(), anyhow::Error> {
         });
     }
 
-    let mut t0 = None;
-    let mut t_old = 0.0;
+    // message timestamps of first message published, the message time and the wall clock time
+    let mut playback_start_times = None;
 
     let mut pubs = HashMap::new();
 
     let mut count = 0;
+    // TODO(lucasw) loop optionally
     for message_raw in mcap::MessageStream::new(&mapped)? {
         match message_raw {
             Ok(message) => {
@@ -83,26 +86,43 @@ async fn main() -> Result<(), anyhow::Error> {
                         log::debug!("{count} {} publish", channel.topic);
                         let msg_with_header = misc::get_message_data_with_header(message.data);
                         if let Some(Ok(publisher)) = pubs.get(&channel.topic) {
-                            let t_cur = message.log_time as f64 / 1e9;
+                            let msg_time = message.log_time as f64 / 1e9;
+                            let wall_time = SystemTime::now()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs_f64();
+
                             // initialize the start time
-                            if t0.is_none() {
-                                t0 = Some(t_cur);
-                                t_old = t_cur;
-                                log::info!("start time {t_cur}s");
+                            if playback_start_times.is_none() {
+                                playback_start_times = Some((msg_time, wall_time));
+                                let d = SystemTime::UNIX_EPOCH
+                                    + std::time::Duration::from_secs_f64(msg_time);
+                                let utc_datetime = DateTime::<chrono::Utc>::from(d);
+                                let local_datetime: DateTime<chrono::prelude::Local> =
+                                    DateTime::from(utc_datetime);
+                                log::info!("first message time {msg_time:.3}s ({:?}), wall time {wall_time:.3}",
+                                    local_datetime,
+                                );
                             }
 
-                            let dt = t_cur - t_old;
-                            if dt > 0.0 {
-                                tokio::time::sleep(tokio::time::Duration::from_millis(
-                                    (dt * 1000.0) as u64,
-                                ))
-                                .await;
+                            if let Some((msg_t0, wall_t0)) = playback_start_times {
+                                let msg_elapsed = msg_time - msg_t0;
+                                let wall_elapsed = wall_time - wall_t0;
+                                // if dt < 0.0 then playback is lagging behind the wallclock
+                                // need to play back messages as fast as possible without sleeping
+                                // until caught up
+                                let dt = msg_elapsed - wall_elapsed;
+                                if dt > 0.0 {
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                                        (dt * 1000.0) as u64,
+                                    ))
+                                    .await;
+                                }
+
+                                let _ = publisher.publish(&msg_with_header).await;
+
+                                // TODO(lucasw) publish a clock message
                             }
-                            t_old = t_cur;
-
-                            let _ = publisher.publish(&msg_with_header).await;
-
-                            // TODO(lucasw) publish a clock message
                         }
                     } else {
                         log::warn!("no publisher for {}", channel.topic);
