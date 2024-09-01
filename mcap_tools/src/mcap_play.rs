@@ -93,7 +93,10 @@ async fn main() -> Result<(), anyhow::Error> {
 
                             let dt = t_cur - t_old;
                             if dt > 0.0 {
-                                tokio::time::sleep(tokio::time::Duration::from_millis((dt * 1000.0) as u64)).await;
+                                tokio::time::sleep(tokio::time::Duration::from_millis(
+                                    (dt * 1000.0) as u64,
+                                ))
+                                .await;
                             }
                             t_old = t_cur;
 
