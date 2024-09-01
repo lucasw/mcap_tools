@@ -3,7 +3,6 @@
 use mcap_tools::misc;
 use std::collections::HashSet;
 
-
 /// return a HashSet of tuples of topic_name, topic_type, and timestamp
 /// TODO(lucasw) multiple message with the same timestamp in the same channel will be ignored, later add a hash of
 /// message content to the tuple
@@ -35,7 +34,9 @@ async fn mcap_to_hashset(mcap_name: &str) -> Result<HashSet<(String, String, u64
                         // let timestamp = message.publish_time / 100_000_000;
                         let timestamp = message.publish_time;
                         let msg_tuple = (channel.topic.clone(), schema.name.clone(), timestamp);
-                        if count % 10000 == 0 { log::debug!("{mcap_name} {} {msg_tuple:?}", message.sequence); }
+                        if count % 10000 == 0 {
+                            log::debug!("{mcap_name} {} {msg_tuple:?}", message.sequence);
+                        }
                         msg_hash.insert(msg_tuple);
                     } else {
                         log::warn!("{mcap_name} couldn't get schema in {:?}", channel.schema);
@@ -116,8 +117,16 @@ async fn main() -> Result<(), anyhow::Error> {
         .map(|m| m.clone())
         .collect();
 
-    log::info!("{mcap_name0} {} messages, {} unique", msg_hash0.len(), msg_hash0_unique.len());
-    log::info!("{mcap_name1} {} messages, {} unique", msg_hash1.len(), msg_hash1_unique.len());
+    log::info!(
+        "{mcap_name0} {} messages, {} unique",
+        msg_hash0.len(),
+        msg_hash0_unique.len()
+    );
+    log::info!(
+        "{mcap_name1} {} messages, {} unique",
+        msg_hash1.len(),
+        msg_hash1_unique.len()
+    );
 
     Ok(())
 }
