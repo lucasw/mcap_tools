@@ -185,7 +185,9 @@ async fn mcap_record(
                             let channel_id =
                                 mcap_out.as_mut().unwrap().add_channel(&channel).unwrap();
                             vacant.insert(channel_id);
-                            log::debug!("{full_node_name} {topic} {topic_type} new channel {channel:?}");
+                            log::debug!(
+                                "{full_node_name} {topic} {topic_type} new channel {channel:?}"
+                            );
                             channel_id
                         }
                     };
@@ -217,7 +219,9 @@ async fn mcap_record(
                     // pressed
                     if e == mpsc::RecvTimeoutError::Timeout {
                         if finish.load(Ordering::SeqCst) {
-                            log::warn!("{full_node_name} finishing writing to {mcap_name} then exiting");
+                            log::warn!(
+                                "{full_node_name} finishing writing to {mcap_name} then exiting"
+                            );
                             mcap_out.unwrap().finish().unwrap();
                             let _ = rename_active(&mcap_name);
                             std::process::exit(0);
@@ -301,9 +305,17 @@ async fn main() -> Result<(), anyhow::Error> {
     let time_str = {
         let now = chrono::prelude::Local::now();
         let offset = now.offset().to_string().replace(":", "_");
-        format!("{}_{}_", now.format("%Y_%m_%d_%H_%M_%S").to_string(), offset)
+        format!(
+            "{}_{}_",
+            now.format("%Y_%m_%d_%H_%M_%S").to_string(),
+            offset
+        )
     };
-    let prefix = matches.get_one::<String>("outputprefix").unwrap().to_owned() + &time_str;
+    let prefix = matches
+        .get_one::<String>("outputprefix")
+        .unwrap()
+        .to_owned()
+        + &time_str;
 
     let master_client = misc::get_master_client(&full_node_name).await?;
     let nh = {
