@@ -1,9 +1,30 @@
 /// get a list of ros topics from the master, optionally loop and show new topics that appear
 /// or note old topics that have gone away
 use chrono::prelude::DateTime;
+use clap::{arg, command};
 use mcap_tools::misc;
-use std::collections::HashMap;
+use regex::Regex;
+use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
+
+fn use_topic(topic: &str, include_re: &Option<Regex>, exclude_re: &Option<Regex>) -> bool {
+    // TODO(lucasw) topic_type matching would be useful as well
+    if let Some(ref re) = include_re {
+        if re.captures(topic).is_none() {
+            log::debug!("not recording from {topic}");
+            return false;
+        }
+    }
+
+    if let Some(ref re) = exclude_re {
+        if re.captures(topic).is_some() {
+            log::info!("excluding recording from {topic}");
+            return false;
+        }
+    }
+
+    true
+}
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -16,15 +37,55 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut params = HashMap::<String, String>::new();
     params.insert("_name".to_string(), "mcap_play".to_string());
-    let (_ns, full_node_name, _unused_args) = misc::get_params(&mut params);
+    let (_ns, full_node_name, unused_args) = misc::get_params(&mut params);
     let nh = {
         let master_uri =
             std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
         roslibrust::ros1::NodeHandle::new(&master_uri, &full_node_name).await?
     };
 
-    let args: Vec<String> = std::env::args().collect();
-    let mcap_name = &args[1];
+    // non-ros cli args
+    let matches = command!()
+        .arg(
+            arg!(
+                -e --regex <REGEX> "match topics using regular expressions"
+            )
+            .required(false)
+        )
+        .arg(
+            arg!(
+                -x --exclude <EXCLUDE_REGEX> "exclude topics matching the follow regular expression\r(subtracts from -a or regex"
+            )
+            .required(false)
+        )
+        .arg(
+            arg!(
+                <mcaps> ... "mcaps to load"
+            )
+            .trailing_var_arg(true)
+        )
+        .get_matches_from(unused_args);
+
+    let include_re;
+    if let Some(regex_str) = matches.get_one::<String>("regex") {
+        include_re = Some(Regex::new(regex_str)?);
+        log::info!("include regular expression {include_re:?}");
+    } else {
+        include_re = None;
+    }
+
+    let exclude_re;
+    if let Some(regex_str) = matches.get_one::<String>("exclude") {
+        exclude_re = Some(Regex::new(regex_str)?);
+        log::info!("exclude regular expression {exclude_re:?}");
+    } else {
+        exclude_re = None;
+    }
+
+    let mcaps: Vec<_> = matches.get_many::<String>("mcaps").unwrap().collect();
+    log::info!("{mcaps:?}");
+
+    let mcap_name = mcaps[0];
     let mapped = misc::map_mcap(mcap_name)?;
 
     log::info!("opening '{mcap_name}' for playback");
@@ -40,6 +101,8 @@ async fn main() -> Result<(), anyhow::Error> {
         });
     }
 
+    let mut topics_to_skip = HashSet::new();
+
     // message timestamps of first message published, the message time and the wall clock time
     let mut playback_start_times = None;
 
@@ -51,6 +114,15 @@ async fn main() -> Result<(), anyhow::Error> {
         match message_raw {
             Ok(message) => {
                 let channel = message.channel;
+
+                if topics_to_skip.contains(&channel.topic) {
+                    continue;
+                }
+                if !use_topic(&channel.topic, &include_re, &exclude_re) {
+                    topics_to_skip.insert(channel.topic.clone());
+                    continue;
+                }
+
                 {
                     if channel.message_encoding != "ros1" {
                         // TODO(lucasw) warn on first occurrence
@@ -82,8 +154,6 @@ async fn main() -> Result<(), anyhow::Error> {
                         continue;
                     }
                     if pubs.contains_key(&channel.topic) {
-                        count += 1;
-                        log::debug!("{count} {} publish", channel.topic);
                         let msg_with_header = misc::get_message_data_with_header(message.data);
                         if let Some(Ok(publisher)) = pubs.get(&channel.topic) {
                             let msg_time = message.log_time as f64 / 1e9;
@@ -121,6 +191,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
                                 let _ = publisher.publish(&msg_with_header).await;
 
+                                count += 1;
+                                log::debug!("{count} {} publish", channel.topic);
                                 // TODO(lucasw) publish a clock message
                             }
                         }
