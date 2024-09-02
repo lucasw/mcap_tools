@@ -3,8 +3,10 @@
 use chrono::prelude::DateTime;
 use clap::{arg, command};
 use mcap_tools::misc;
+use memmap::Mmap;
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use roslibrust::ros1::PublisherAny;
+use std::collections::HashMap;
 use std::time::SystemTime;
 
 fn use_topic(topic: &str, include_re: &Option<Regex>, exclude_re: &Option<Regex>) -> bool {
@@ -24,6 +26,71 @@ fn use_topic(topic: &str, include_re: &Option<Regex>, exclude_re: &Option<Regex>
     }
 
     true
+}
+
+fn get_wall_time() -> f64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64()
+}
+
+async fn mcap_playback_init(
+    nh: &roslibrust::ros1::NodeHandle,
+    mapped: &Mmap,
+    include_re: &Option<Regex>,
+    exclude_re: &Option<Regex>,
+) -> Result<(HashMap<String, PublisherAny>, f64), anyhow::Error> {
+    let mut pubs = HashMap::new();
+
+    // TODO(lucasw) could create every publisher from the summary
+    let summary = mcap::read::Summary::read(mapped)?;
+    // let summary = summary.ok_or(Err(anyhow::anyhow!("no summary")))?;
+    let summary = summary.ok_or(anyhow::anyhow!("no summary"))?;
+
+    for channel in summary.channels.values() {
+        if !use_topic(&channel.topic, include_re, exclude_re) {
+            continue;
+        }
+
+        if channel.message_encoding != "ros1" {
+            // TODO(lucasw) warn on first occurrence
+            log::warn!("{}", channel.message_encoding);
+            continue;
+        }
+        if let Some(schema) = &channel.schema {
+            if schema.encoding != "ros1msg" {
+                // TODO(lucasw) warn on first occurrence
+                log::warn!("{}", schema.encoding);
+                continue;
+            }
+            if !pubs.contains_key(&channel.topic) {
+                log::info!("{} {:?}", channel.topic, schema);
+                let publisher = nh
+                    .advertise_any(
+                        &channel.topic,
+                        &schema.name,
+                        std::str::from_utf8(&schema.data.clone()).unwrap(),
+                        10,
+                        false,
+                    )
+                    .await?;
+                pubs.insert(channel.topic.clone(), publisher);
+            }
+        } else {
+            log::warn!("couldn't get schema {:?} {}", channel.schema, channel.topic);
+            continue;
+        }
+    } // loop through channels
+
+    let msg_t0 = summary
+        .stats
+        .ok_or(anyhow::anyhow!("no stats"))?
+        .message_start_time as f64
+        / 1e9;
+    log::info!("start time {}", msg_t0);
+
+    Ok((pubs, msg_t0))
 }
 
 #[tokio::main]
@@ -90,7 +157,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
     log::info!("opening '{mcap_name}' for playback");
 
-    // let schemas = Arc::new(Mutex::new(HashMap::new()));
+    // initialize the start times and publishers
+    let (pubs, msg_t0) = mcap_playback_init(&nh, &mapped, &include_re, &exclude_re).await?;
 
     // Setup a task to kill this process when ctrl_c comes in:
     {
@@ -101,104 +169,67 @@ async fn main() -> Result<(), anyhow::Error> {
         });
     }
 
-    let mut topics_to_skip = HashSet::new();
+    // TODO(lucasw) loop optionally
+    {
+        let wall_t0 = get_wall_time();
+        {
+            let d = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs_f64(msg_t0);
+            let utc_datetime = DateTime::<chrono::Utc>::from(d);
+            let local_datetime: DateTime<chrono::prelude::Local> = DateTime::from(utc_datetime);
+            log::info!(
+                "first message time {msg_t0:.3}s ({:?}), wall time {wall_t0:.3}",
+                local_datetime,
+            );
+        }
 
+        play(mapped, pubs, msg_t0, wall_t0).await?;
+    }
+
+    Ok(())
+}
+
+async fn play(
+    mapped: Mmap,
+    pubs: HashMap<String, PublisherAny>,
+    msg_t0: f64,
+    wall_t0: f64,
+) -> Result<(), anyhow::Error> {
     // message timestamps of first message published, the message time and the wall clock time
-    let mut playback_start_times = None;
-
-    let mut pubs = HashMap::new();
 
     let mut count = 0;
-    // TODO(lucasw) loop optionally
     for message_raw in mcap::MessageStream::new(&mapped)? {
         match message_raw {
             Ok(message) => {
                 let channel = message.channel;
 
-                if topics_to_skip.contains(&channel.topic) {
-                    continue;
-                }
-                if !use_topic(&channel.topic, &include_re, &exclude_re) {
-                    topics_to_skip.insert(channel.topic.clone());
+                // TODO(lucasw) unnecessary with pubs.get below?
+                if !pubs.contains_key(&channel.topic) {
                     continue;
                 }
 
-                {
-                    if channel.message_encoding != "ros1" {
-                        // TODO(lucasw) warn on first occurrence
-                        log::warn!("{}", channel.message_encoding);
-                        continue;
+                let msg_with_header = misc::get_message_data_with_header(message.data);
+                if let Some(publisher) = pubs.get(&channel.topic) {
+                    let msg_time = message.log_time as f64 / 1e9;
+                    let wall_time = get_wall_time();
+
+                    let msg_elapsed = msg_time - msg_t0;
+                    let wall_elapsed = wall_time - wall_t0;
+                    // if dt < 0.0 then playback is lagging behind the wallclock
+                    // need to play back messages as fast as possible without sleeping
+                    // until caught up
+                    let dt = msg_elapsed - wall_elapsed;
+                    if dt > 0.0 {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(
+                            (dt * 1000.0) as u64,
+                        ))
+                        .await;
                     }
-                    if let Some(schema) = &channel.schema {
-                        if schema.encoding != "ros1msg" {
-                            // TODO(lucasw) warn on first occurrence
-                            log::warn!("{}", schema.encoding);
-                            continue;
-                        }
-                        if !pubs.contains_key(&channel.topic) {
-                            log::info!("{} {:?}", channel.topic, schema);
-                            let publisher = nh
-                                .advertise_any(
-                                    &channel.topic,
-                                    &schema.name,
-                                    std::str::from_utf8(&schema.data.clone()).unwrap(),
-                                    10,
-                                    false,
-                                )
-                                .await;
-                            pubs.insert(channel.topic.clone(), publisher);
-                            // channel.message_encoding.clone());
-                        }
-                    } else {
-                        log::warn!("couldn't get schema {:?}", channel.schema);
-                        continue;
-                    }
-                    if pubs.contains_key(&channel.topic) {
-                        let msg_with_header = misc::get_message_data_with_header(message.data);
-                        if let Some(Ok(publisher)) = pubs.get(&channel.topic) {
-                            let msg_time = message.log_time as f64 / 1e9;
-                            let wall_time = SystemTime::now()
-                                .duration_since(SystemTime::UNIX_EPOCH)
-                                .unwrap()
-                                .as_secs_f64();
 
-                            // initialize the start time
-                            if playback_start_times.is_none() {
-                                playback_start_times = Some((msg_time, wall_time));
-                                let d = SystemTime::UNIX_EPOCH
-                                    + std::time::Duration::from_secs_f64(msg_time);
-                                let utc_datetime = DateTime::<chrono::Utc>::from(d);
-                                let local_datetime: DateTime<chrono::prelude::Local> =
-                                    DateTime::from(utc_datetime);
-                                log::info!("first message time {msg_time:.3}s ({:?}), wall time {wall_time:.3}",
-                                    local_datetime,
-                                );
-                            }
+                    let _ = publisher.publish(&msg_with_header).await;
 
-                            if let Some((msg_t0, wall_t0)) = playback_start_times {
-                                let msg_elapsed = msg_time - msg_t0;
-                                let wall_elapsed = wall_time - wall_t0;
-                                // if dt < 0.0 then playback is lagging behind the wallclock
-                                // need to play back messages as fast as possible without sleeping
-                                // until caught up
-                                let dt = msg_elapsed - wall_elapsed;
-                                if dt > 0.0 {
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(
-                                        (dt * 1000.0) as u64,
-                                    ))
-                                    .await;
-                                }
-
-                                let _ = publisher.publish(&msg_with_header).await;
-
-                                count += 1;
-                                log::debug!("{count} {} publish", channel.topic);
-                                // TODO(lucasw) publish a clock message
-                            }
-                        }
-                    } else {
-                        log::warn!("no publisher for {}", channel.topic);
-                    }
+                    count += 1;
+                    log::debug!("{count} {} publish", channel.topic);
+                    // TODO(lucasw) publish a clock message
                 }
             }
             Err(e) => {

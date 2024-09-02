@@ -305,11 +305,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let time_str = {
         let now = chrono::prelude::Local::now();
         let offset = now.offset().to_string().replace(':', "_");
-        format!(
-            "{}_{}_",
-            now.format("%Y_%m_%d_%H_%M_%S"),
-            offset
-        )
+        format!("{}_{}_", now.format("%Y_%m_%d_%H_%M_%S"), offset)
     };
     let prefix = matches
         .get_one::<String>("outputprefix")
