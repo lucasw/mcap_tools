@@ -9,6 +9,13 @@ use roslibrust::ros1::PublisherAny;
 use std::collections::HashMap;
 use std::time::SystemTime;
 
+fn f64_secs_to_local_datetime(secs: f64) -> DateTime<chrono::prelude::Local> {
+    let d = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs_f64(secs);
+    let utc_datetime = DateTime::<chrono::Utc>::from(d);
+    let local_datetime: DateTime<chrono::prelude::Local> = DateTime::from(utc_datetime);
+    local_datetime
+}
+
 fn use_topic(topic: &str, include_re: &Option<Regex>, exclude_re: &Option<Regex>) -> bool {
     // TODO(lucasw) topic_type matching would be useful as well
     if let Some(ref re) = include_re {
@@ -37,6 +44,7 @@ fn get_wall_time() -> f64 {
 
 async fn mcap_playback_init(
     nh: &roslibrust::ros1::NodeHandle,
+    mcap_name: &str,
     mapped: &Mmap,
     include_re: &Option<Regex>,
     exclude_re: &Option<Regex>,
@@ -46,7 +54,7 @@ async fn mcap_playback_init(
     // TODO(lucasw) could create every publisher from the summary
     let summary = mcap::read::Summary::read(mapped)?;
     // let summary = summary.ok_or(Err(anyhow::anyhow!("no summary")))?;
-    let summary = summary.ok_or(anyhow::anyhow!("no summary"))?;
+    let summary = summary.ok_or(anyhow::anyhow!("{mcap_name} no summary"))?;
 
     for channel in summary.channels.values() {
         if !use_topic(&channel.topic, include_re, exclude_re) {
@@ -55,17 +63,17 @@ async fn mcap_playback_init(
 
         if channel.message_encoding != "ros1" {
             // TODO(lucasw) warn on first occurrence
-            log::warn!("{}", channel.message_encoding);
+            log::warn!("{mcap_name} {}", channel.message_encoding);
             continue;
         }
         if let Some(schema) = &channel.schema {
             if schema.encoding != "ros1msg" {
                 // TODO(lucasw) warn on first occurrence
-                log::warn!("{}", schema.encoding);
+                log::warn!("{mcap_name} {}", schema.encoding);
                 continue;
             }
             if !pubs.contains_key(&channel.topic) {
-                log::info!("{} {:?}", channel.topic, schema);
+                log::info!("{mcap_name} {} {:?}", channel.topic, schema);
                 let publisher = nh
                     .advertise_any(
                         &channel.topic,
@@ -78,17 +86,17 @@ async fn mcap_playback_init(
                 pubs.insert(channel.topic.clone(), publisher);
             }
         } else {
-            log::warn!("couldn't get schema {:?} {}", channel.schema, channel.topic);
+            log::warn!("{mcap_name} couldn't get schema {:?} {}", channel.schema, channel.topic);
             continue;
         }
     } // loop through channels
 
     let msg_t0 = summary
         .stats
-        .ok_or(anyhow::anyhow!("no stats"))?
+        .ok_or(anyhow::anyhow!("{mcap_name} no stats"))?
         .message_start_time as f64
         / 1e9;
-    log::info!("start time {}", msg_t0);
+    log::info!("{mcap_name} start time {}", msg_t0);
 
     Ok((pubs, msg_t0))
 }
@@ -105,11 +113,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut params = HashMap::<String, String>::new();
     params.insert("_name".to_string(), "mcap_play".to_string());
     let (_ns, full_node_name, unused_args) = misc::get_params(&mut params);
-    let nh = {
-        let master_uri =
-            std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
-        roslibrust::ros1::NodeHandle::new(&master_uri, &full_node_name).await?
-    };
+    let master_uri =
+        std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
 
     // non-ros cli args
     let matches = command!()
@@ -149,48 +154,63 @@ async fn main() -> Result<(), anyhow::Error> {
         exclude_re = None;
     }
 
-    let mcaps: Vec<_> = matches.get_many::<String>("mcaps").unwrap().collect();
-    log::info!("{mcaps:?}");
-
-    let mcap_name = mcaps[0];
-    let mapped = misc::map_mcap(mcap_name)?;
-
-    log::info!("opening '{mcap_name}' for playback");
-
-    // initialize the start times and publishers
-    let (pubs, msg_t0) = mcap_playback_init(&nh, &mapped, &include_re, &exclude_re).await?;
-
     // Setup a task to kill this process when ctrl_c comes in:
-    {
-        tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.unwrap();
-            log::debug!("closing mcap");
-            std::process::exit(0);
-        });
-    }
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.unwrap();
+        log::debug!("closing mcap playback");
+        std::process::exit(0);
+    });
+
+    let mcap_names: Vec<_> = matches.get_many::<String>("mcaps").unwrap().collect();
+    log::info!("{mcap_names:?}");
+
+    let play_data = {
+        let mut play_data = HashMap::new();
+
+        for (ind, mcap_name) in mcap_names.iter().enumerate() {
+            log::info!("{ind} opening '{mcap_name}' for playback");
+            let nh_name = format!("{full_node_name}_{ind}_{}", mcap_name.replace('/', "_").replace('.', "_"));
+            let nh = roslibrust::ros1::NodeHandle::new(&master_uri, &nh_name).await?;
+            let mapped = misc::map_mcap(mcap_name)?;
+
+            // initialize the start times and publishers
+            let (pubs, msg_t0) = mcap_playback_init(&nh, mcap_name, &mapped, &include_re, &exclude_re).await?;
+
+            play_data.insert(mcap_name.clone(), (nh, mapped, pubs, msg_t0));
+        }
+        play_data
+    };
 
     // TODO(lucasw) loop optionally
     {
         let wall_t0 = get_wall_time();
-        {
-            let d = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs_f64(msg_t0);
-            let utc_datetime = DateTime::<chrono::Utc>::from(d);
-            let local_datetime: DateTime<chrono::prelude::Local> = DateTime::from(utc_datetime);
-            log::info!(
-                "first message time {msg_t0:.3}s ({:?}), wall time {wall_t0:.3}",
-                local_datetime,
-            );
-        }
+        for (mcap_name, (_nh, mapped, pubs, msg_t0)) in &play_data {
+            let wall_t0 = wall_t0.clone();
+            let mcap_name = mcap_name.clone();
+            // TODO(lucasw) not sure how to get pubs and mapped into the threads- want to be able
+            // to borrow them, but still there are the lifetime issues
+            let mapped = mapped.clone();
+            let pubs = pubs.clone();
+            let msg_t0 = msg_t0.clone();
+            // let handle = tokio::spawn(async move {
+                log::info!(
+                    "first message time {msg_t0:.3}s ({:?}), wall time {wall_t0:.3}",
+                    f64_secs_to_local_datetime(msg_t0),
+                );
 
-        play(mapped, pubs, msg_t0, wall_t0).await?;
+                play(mcap_name, mapped, pubs, msg_t0, wall_t0).await;
+            // });
+            // handle.await?;
+        }
     }
 
     Ok(())
 }
 
 async fn play(
-    mapped: Mmap,
-    pubs: HashMap<String, PublisherAny>,
+    mcap_name: &str,
+    mapped: &Mmap,
+    pubs: &HashMap<String, PublisherAny>,
     msg_t0: f64,
     wall_t0: f64,
 ) -> Result<(), anyhow::Error> {
@@ -228,17 +248,17 @@ async fn play(
                     let _ = publisher.publish(&msg_with_header).await;
 
                     count += 1;
-                    log::debug!("{count} {} publish", channel.topic);
+                    log::debug!("{mcap_name} {count} {} publish", channel.topic);
                     // TODO(lucasw) publish a clock message
                 }
             }
             Err(e) => {
-                log::warn!("{:?}", e);
+                log::warn!("{mcap_name} {:?}", e);
             }
         }
     } // loop through all messages
 
-    log::info!("published {count} messages in mcap");
+    log::info!("{mcap_name} published {count} messages");
 
     Ok(())
 }
