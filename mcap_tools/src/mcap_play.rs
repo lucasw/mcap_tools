@@ -73,7 +73,7 @@ async fn mcap_playback_init(
                 continue;
             }
             if !pubs.contains_key(&channel.topic) {
-                log::info!("{mcap_name} {} {:?}", channel.topic, schema);
+                log::debug!("{mcap_name} topic {}, schema {:?}", channel.topic, schema);
                 let publisher = nh
                     .advertise_any(
                         &channel.topic,
@@ -86,7 +86,11 @@ async fn mcap_playback_init(
                 pubs.insert(channel.topic.clone(), publisher);
             }
         } else {
-            log::warn!("{mcap_name} couldn't get schema {:?} {}", channel.schema, channel.topic);
+            log::warn!(
+                "{mcap_name} couldn't get schema {:?} {}",
+                channel.schema,
+                channel.topic
+            );
             continue;
         }
     } // loop through channels
@@ -161,47 +165,56 @@ async fn main() -> Result<(), anyhow::Error> {
         std::process::exit(0);
     });
 
+    // TODO(lucasw) there must be a shorter way to get vector of strings here
     let mcap_names: Vec<_> = matches.get_many::<String>("mcaps").unwrap().collect();
+    let mcap_names: Vec<String> = mcap_names.iter().map(|s| (**s).clone()).collect();
     log::info!("{mcap_names:?}");
 
+    let nh = roslibrust::ros1::NodeHandle::new(&master_uri, &full_node_name).await?;
     let play_data = {
-        let mut play_data = HashMap::new();
+        let mut play_data = Vec::new();
 
         for (ind, mcap_name) in mcap_names.iter().enumerate() {
-            log::info!("{ind} opening '{mcap_name}' for playback");
-            let nh_name = format!("{full_node_name}_{ind}_{}", mcap_name.replace('/', "_").replace('.', "_"));
-            let nh = roslibrust::ros1::NodeHandle::new(&master_uri, &nh_name).await?;
+            let nh_name = format!(
+                "{full_node_name}_{ind}_{}",
+                mcap_name.replace(['/', '.'], "_")
+            );
+            log::info!("{ind} opening '{mcap_name}' for playback with inner node {nh_name}");
+            // let nh = roslibrust::ros1::NodeHandle::new(&master_uri, &nh_name).await?;
             let mapped = misc::map_mcap(mcap_name)?;
 
             // initialize the start times and publishers
-            let (pubs, msg_t0) = mcap_playback_init(&nh, mcap_name, &mapped, &include_re, &exclude_re).await?;
+            let (pubs, msg_t0) =
+                mcap_playback_init(&nh, mcap_name, &mapped, &include_re, &exclude_re).await?;
 
-            play_data.insert(mcap_name.clone(), (nh, mapped, pubs, msg_t0));
+            play_data.push((mcap_name.clone(), mapped, /* nh,*/ pubs, msg_t0));
         }
         play_data
     };
 
-    // TODO(lucasw) loop optionally
     {
+        let mut handles = Vec::new();
         let wall_t0 = get_wall_time();
-        for (mcap_name, (_nh, mapped, pubs, msg_t0)) in &play_data {
-            let wall_t0 = wall_t0.clone();
-            let mcap_name = mcap_name.clone();
-            // TODO(lucasw) not sure how to get pubs and mapped into the threads- want to be able
-            // to borrow them, but still there are the lifetime issues
-            let mapped = mapped.clone();
-            let pubs = pubs.clone();
-            let msg_t0 = msg_t0.clone();
-            // let handle = tokio::spawn(async move {
+        for (mcap_name, mapped, /*_nh, */ pubs, msg_t0) in play_data {
+            let handle = tokio::spawn(async move {
                 log::info!(
                     "first message time {msg_t0:.3}s ({:?}), wall time {wall_t0:.3}",
                     f64_secs_to_local_datetime(msg_t0),
                 );
 
-                play(mcap_name, mapped, pubs, msg_t0, wall_t0).await;
-            // });
-            // handle.await?;
+                // TODO(lucasw) loop optionally
+                play(&mcap_name, &mapped, &pubs, msg_t0, wall_t0)
+                    .await
+                    .unwrap();
+            });
+            handles.push(handle);
         }
+
+        log::info!("waiting for {} tokio handles", handles.len());
+        for handle in handles {
+            handle.await?;
+        }
+        log::info!("done with tokio handles");
     }
 
     Ok(())
@@ -217,7 +230,7 @@ async fn play(
     // message timestamps of first message published, the message time and the wall clock time
 
     let mut count = 0;
-    for message_raw in mcap::MessageStream::new(&mapped)? {
+    for message_raw in mcap::MessageStream::new(mapped)? {
         match message_raw {
             Ok(message) => {
                 let channel = message.channel;
