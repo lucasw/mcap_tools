@@ -43,7 +43,7 @@ data_2024_08_26_09_15_08_-07_00_00001.mcap
 ## build
 
 ```
-ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs` cargo build --release
+ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find std_srvs` cargo build --release
 ```
 
 ### build and run in one line (for development)

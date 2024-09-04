@@ -44,6 +44,7 @@ jobs:
       - name: more apt installs
         run: |
           sudo apt install -yqq python3-rosmsg rospack-tools libsensor-msgs-dev libstd-msgs-dev libgeometry-msgs-dev ros-sensor-msgs ros-std-msgs ros-geometry-msgs cargo pkg-config
+          sudo apt install -yqq libstd-srvs-dev python3-std-srvs ros-std-srvs
           sudo apt install -yqq librust-openssl-dev
           rospack find geometry_msgs
 
@@ -51,6 +52,6 @@ jobs:
         run: |
           # TODO(lucasw) build docs, and run tests
           cd mcap_tools/mcap_tools
-          ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs` cargo build --release
+          ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find std_srvs` cargo build --release
           target/release/mcap_record --version
           target/release/mcap_record --help
