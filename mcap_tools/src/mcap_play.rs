@@ -238,7 +238,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     f64_secs_to_local_datetime(msg_t0),
                 );
 
-                play(&mcap_name, &mapped, &pubs, msg_t_start, rx, max_loops)
+                play(&mcap_name, &mapped, &pubs, rx, max_loops)
                     .await
                     .unwrap();
             });
@@ -250,10 +250,14 @@ async fn main() -> Result<(), anyhow::Error> {
         // a flag to exit playback early
         let mut finish_playback = false;
         let mut loop_count = 0;
+        let mut paused = false;
         loop {
-            let wall_t0 = get_wall_time();
+            // how much time has elapsed of playback time, excluding any time spent paused
+            let mut playback_elapsed = 0.0;
+
+            let mut wall_t0 = get_wall_time();
             log::info!("{loop_count} send wall start time to play threads {wall_t0:.3}\r");
-            tx.send(wall_t0)?;
+            tx.send((wall_t0, msg_t_start, paused))?;
 
             let duration = msg_t_end - msg_t_start;
             log::info!("{loop_count} waiting for {duration:.3}s for playback to end\r");
@@ -263,8 +267,12 @@ async fn main() -> Result<(), anyhow::Error> {
             let mut term_reader = EventStream::new();
 
             loop {
-                if (get_wall_time() - wall_t0) > duration {
-                    break;
+                let wall_t = get_wall_time();
+                if !paused {
+                    playback_elapsed = wall_t - wall_t0;
+                    if playback_elapsed > duration {
+                        break;
+                    }
                 }
 
                 let mut delay = Delay::new(Duration::from_millis(1_000)).fuse();
@@ -275,19 +283,24 @@ async fn main() -> Result<(), anyhow::Error> {
                     maybe_event = event => {
                         match maybe_event {
                             Some(Ok(event)) => {
-                                /*
-                                println!("Event::{:?}\n", event);
-                                if event == Event::Key(KeyCode::Char('c').into()) {
-                                    log::info!("c key");
-                                }
-                                */
-
                                 // spacebar
                                 if event == Event::Key(KeyCode::Char(' ').into()) {
-                                    // TODO(lucasw) broadcast a new msg_t0, wall_t0, and pause status
-                                    // to the playing threads
-                                    log::info!("TODO(lucasw) play/pause playback\r");
+                                    // broadcast a new msg_t0, wall_t0, and pause status
+                                    // to the playing threads, and make it so no messages are lost
+                                    // in the transition
+                                    paused = !paused;
+                                    if !paused {
+                                        // update wall_t0 to the value it would be had the pause
+                                        // never happened
+                                        // TODO(lucasw) maybe that is confusing and a better pause
+                                        // system is needed that doesn't require a fictional
+                                        // wall_t0
+                                        wall_t0 = wall_t - playback_elapsed;
+                                    }
+                                    log::info!("paused: {paused}\r");
+                                    tx.send((wall_t0, msg_t_start, paused))?;
                                 }
+                                // TODO(lucasw) ctrl-c needs to quit also
                                 if event == Event::Key(KeyCode::Esc.into()) {
                                     log::info!("escape key, quitting\r");
                                     finish_playback = true;
@@ -333,8 +346,7 @@ async fn play(
     mcap_name: &str,
     mapped: &Mmap,
     pubs: &HashMap<String, PublisherAny>,
-    msg_t0: f64,
-    mut wall_t0_rx: broadcast::Receiver<f64>,
+    mut rx: broadcast::Receiver<(f64, f64, bool)>,
     max_loops: Option<u64>,
 ) -> Result<(), anyhow::Error> {
     let mut loop_count = 0;
@@ -342,11 +354,41 @@ async fn play(
         // TODO(lucasw) if a new wall_t0 is received mid playback it should interrupt it
         // and start over if needed, which means we need to try_recv on wall_t0_rx after every message
         // publish and periodically while sleeping between messages
-        let wall_t0 = wall_t0_rx.recv().await?;
-        log::info!("{loop_count} {mcap_name} wall_t0 received {wall_t0}\r");
+        let mut wall_t0;
+        let mut msg_t0;
+        let mut paused;
+
+        // TODO(lucasw) mostly duplicate code with below, but need to receive at least one of these
+        // before playing anything, per loop
+        (wall_t0, msg_t0, paused) = rx.recv().await?;
+        log::info!(
+            "{loop_count} {mcap_name} {wall_t0:.3} ({:.3}), {msg_t0:.3}, paused {paused}\r",
+            get_wall_time() - wall_t0
+        );
 
         let mut count = 0;
         for message_raw in mcap::MessageStream::new(mapped)? {
+            loop {
+                // get a new pause state possibly
+                let rv = rx.try_recv();
+                match rv {
+                    Err(_err) => {
+                        // There's no new message, continue on
+                        // TODO(lucasw) handle TryRecvError::Lagged
+                    }
+                    Ok((new_wall_t0, new_msg_t0, new_paused)) => {
+                        wall_t0 = new_wall_t0;
+                        msg_t0 = new_msg_t0;
+                        paused = new_paused;
+                        log::info!("{loop_count} {mcap_name} {wall_t0:.3} ({:.3}), {msg_t0:.3}, paused {paused}\r", get_wall_time() - wall_t0);
+                    }
+                }
+                if !paused {
+                    break;
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            }
+
             match message_raw {
                 Ok(message) => {
                     let channel = message.channel;
@@ -359,6 +401,9 @@ async fn play(
                     let msg_with_header = misc::get_message_data_with_header(message.data);
                     if let Some(publisher) = pubs.get(&channel.topic) {
                         let msg_time = message.log_time as f64 / 1e9;
+                        if msg_time < msg_t0 {
+                            continue;
+                        }
                         let wall_time = get_wall_time();
 
                         let msg_elapsed = msg_time - msg_t0;
