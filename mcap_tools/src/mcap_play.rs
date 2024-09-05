@@ -16,7 +16,7 @@ use futures::{future::FutureExt, select, StreamExt};
 use futures_timer::Delay;
 
 use crossterm::{
-    event::{Event, EventStream, KeyCode},
+    event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 
@@ -238,9 +238,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     f64_secs_to_local_datetime(msg_t0),
                 );
 
-                play(&mcap_name, &mapped, &pubs, rx, max_loops)
-                    .await
-                    .unwrap();
+                play(&mcap_name, &mapped, &pubs, rx).await.unwrap();
             });
             handles.push(handle);
         }
@@ -256,12 +254,9 @@ async fn main() -> Result<(), anyhow::Error> {
             let mut playback_elapsed = 0.0;
 
             let mut wall_t0 = get_wall_time();
-            log::info!("{loop_count} send wall start time to play threads {wall_t0:.3}\r");
-            tx.send((wall_t0, msg_t_start, paused))?;
-
             let duration = msg_t_end - msg_t_start;
-            log::info!("{loop_count} waiting for {duration:.3}s for playback to end\r");
-            // tokio::time::sleep(tokio::time::Duration::from_secs((duration + 1.0) as u64)).await;
+            log::info!("{loop_count} ##### send wall start time to play threads {wall_t0:.3} for {duration:.1}s\r");
+            tx.send((wall_t0, msg_t_start, paused, loop_count))?;
 
             // look for key presses during this playback iteration
             let mut term_reader = EventStream::new();
@@ -270,7 +265,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 let wall_t = get_wall_time();
                 if !paused {
                     playback_elapsed = wall_t - wall_t0;
-                    if playback_elapsed > duration {
+                    if playback_elapsed > duration + 1.0 {
                         break;
                     }
                 }
@@ -283,6 +278,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     maybe_event = event => {
                         match maybe_event {
                             Some(Ok(event)) => {
+
                                 // spacebar
                                 if event == Event::Key(KeyCode::Char(' ').into()) {
                                     // broadcast a new msg_t0, wall_t0, and pause status
@@ -291,16 +287,26 @@ async fn main() -> Result<(), anyhow::Error> {
                                     paused = !paused;
                                     if !paused {
                                         // update wall_t0 to the value it would be had the pause
-                                        // never happened
+                                        // never happened, future dated by a little
+                                        // to delay playback
                                         // TODO(lucasw) maybe that is confusing and a better pause
                                         // system is needed that doesn't require a fictional
                                         // wall_t0
-                                        wall_t0 = wall_t - playback_elapsed;
+                                        wall_t0 = wall_t - playback_elapsed + 1.0;
                                     }
                                     log::info!("paused: {paused}\r");
-                                    tx.send((wall_t0, msg_t_start, paused))?;
+                                    tx.send((wall_t0, msg_t_start, paused, loop_count))?;
                                 }
-                                // TODO(lucasw) ctrl-c needs to quit also
+
+                                if event == Event::Key(KeyEvent::new(
+                                    KeyCode::Char('c'),
+                                    KeyModifiers::CONTROL,
+                                    )
+                                ) {
+                                    log::info!("ctrl-c, quitting\r");
+                                    finish_playback = true;
+                                    break;
+                                }
                                 if event == Event::Key(KeyCode::Esc.into()) {
                                     log::info!("escape key, quitting\r");
                                     finish_playback = true;
@@ -315,6 +321,7 @@ async fn main() -> Result<(), anyhow::Error> {
             }
 
             if finish_playback {
+                // TODO(lucasw) need to send a finished message to player threads
                 break;
             }
 
@@ -326,8 +333,12 @@ async fn main() -> Result<(), anyhow::Error> {
             } else {
                 break;
             }
+
+            // signal all the threads they need to restart their loops
+            tx.send((wall_t0, msg_t_start, paused, loop_count))?;
         }
 
+        /*
         if !finish_playback {
             log::info!("waiting for {} tokio handles\r", handles.len());
             for handle in handles {
@@ -335,6 +346,7 @@ async fn main() -> Result<(), anyhow::Error> {
             }
             log::info!("done with tokio handles\r");
         }
+        */
     }
 
     disable_raw_mode()?;
@@ -346,8 +358,7 @@ async fn play(
     mcap_name: &str,
     mapped: &Mmap,
     pubs: &HashMap<String, PublisherAny>,
-    mut rx: broadcast::Receiver<(f64, f64, bool)>,
-    max_loops: Option<u64>,
+    mut rx: broadcast::Receiver<(f64, f64, bool, u64)>,
 ) -> Result<(), anyhow::Error> {
     let mut loop_count = 0;
     loop {
@@ -357,38 +368,31 @@ async fn play(
         let mut wall_t0;
         let mut msg_t0;
         let mut paused;
+        let mut main_loop_count;
 
-        // TODO(lucasw) mostly duplicate code with below, but need to receive at least one of these
-        // before playing anything, per loop
-        (wall_t0, msg_t0, paused) = rx.recv().await?;
+        // wait for loop start
+        // TODO(lucasw) or only do this optionally
+        loop {
+            (wall_t0, msg_t0, paused, main_loop_count) = rx.recv().await?;
+            if main_loop_count < loop_count {
+                log::info!("{loop_count} wait for main loop count to catch up to this one > {main_loop_count}\r");
+                continue;
+            } else if main_loop_count == loop_count {
+                log::info!("{loop_count} main loop count and this one in sync, start playing back messages\r");
+                break;
+            } else {
+                log::warn!("{loop_count} somehow have skipped entire loop/s, catching up -> {main_loop_count}\r");
+                loop_count = main_loop_count;
+                break;
+            }
+        }
         log::info!(
-            "{loop_count} {mcap_name} {wall_t0:.3} ({:.3}), {msg_t0:.3}, paused {paused}\r",
+            "{loop_count} {mcap_name} ## start {wall_t0:.3} ({:.3}), {msg_t0:.3}, paused {paused}\r",
             get_wall_time() - wall_t0
         );
 
         let mut count = 0;
         for message_raw in mcap::MessageStream::new(mapped)? {
-            loop {
-                // get a new pause state possibly
-                let rv = rx.try_recv();
-                match rv {
-                    Err(_err) => {
-                        // There's no new message, continue on
-                        // TODO(lucasw) handle TryRecvError::Lagged
-                    }
-                    Ok((new_wall_t0, new_msg_t0, new_paused)) => {
-                        wall_t0 = new_wall_t0;
-                        msg_t0 = new_msg_t0;
-                        paused = new_paused;
-                        log::info!("{loop_count} {mcap_name} {wall_t0:.3} ({:.3}), {msg_t0:.3}, paused {paused}\r", get_wall_time() - wall_t0);
-                    }
-                }
-                if !paused {
-                    break;
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-            }
-
             match message_raw {
                 Ok(message) => {
                     let channel = message.channel;
@@ -404,20 +408,68 @@ async fn play(
                         if msg_time < msg_t0 {
                             continue;
                         }
-                        let wall_time = get_wall_time();
 
-                        let msg_elapsed = msg_time - msg_t0;
-                        let wall_elapsed = wall_time - wall_t0;
-                        // if dt < 0.0 then playback is lagging behind the wallclock
-                        // need to play back messages as fast as possible without sleeping
-                        // until caught up
-                        let dt = msg_elapsed - wall_elapsed;
-                        // TODO(lucasw) if dt is too negative then skip publishing until caught up?
-                        if dt > 0.0 {
-                            tokio::time::sleep(tokio::time::Duration::from_millis(
-                                (dt * 1000.0) as u64,
-                            ))
-                            .await;
+                        // get a new pause state possibly and wait for right time to publish this
+                        // message
+                        loop {
+                            let wall_time = get_wall_time();
+
+                            let rv = rx.try_recv();
+                            match rv {
+                                Err(_err) => {
+                                    // There's no new message, continue on
+                                    // TODO(lucasw) handle TryRecvError::Lagged
+                                }
+                                Ok((new_wall_t0, new_msg_t0, new_paused, new_loop_count)) => {
+                                    wall_t0 = new_wall_t0;
+                                    msg_t0 = new_msg_t0;
+                                    paused = new_paused;
+                                    main_loop_count = new_loop_count;
+                                    if main_loop_count != loop_count {
+                                        log::info!("{loop_count} not publishing this message, have a new loop count {main_loop_count}");
+                                        break;
+                                    }
+                                    log::info!("{loop_count} {mcap_name} {wall_t0:.3} ({:.3}), {msg_t0:.3}, ({:.3}), paused {paused}\r",
+                                        wall_time - wall_t0,
+                                        msg_time - msg_t0);
+                                }
+                            }
+
+                            if paused {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                                continue;
+                            }
+
+                            // TODO(lucasw) check again if msg_time < msg_t0, because msg_t0
+                            // may be different?
+
+                            let msg_elapsed = msg_time - msg_t0;
+                            let wall_elapsed = wall_time - wall_t0;
+                            let dt = msg_elapsed - wall_elapsed;
+
+                            // if dt < 0.0 then playback is lagging behind the wallclock
+                            // need to play back messages as fast as possible without sleeping
+                            // until caught up
+                            // TODO(lucasw) if dt is too negative then skip publishing until caught up?
+                            if dt <= 50.0 {
+                                if dt > 0.0 {
+                                    // sleep remainder then publish
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                                        (dt * 1000.0) as u64,
+                                    ))
+                                    .await;
+                                }
+                                break;
+                            }
+
+                            // need to loop if it isn't time to publish yet and continue to look
+                            // for changes in pause state
+                            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                        } // check for new received state repeatedly
+
+                        if main_loop_count != loop_count {
+                            log::info!("{loop_count} ending this loop, have a new loop count {main_loop_count}");
+                            break;
                         }
 
                         let _ = publisher.publish(&msg_with_header).await;
@@ -438,14 +490,8 @@ async fn play(
 
         log::info!("{loop_count} {mcap_name} published {count} messages\r");
         loop_count += 1;
-        if let Some(max_loops) = max_loops {
-            if max_loops > 0 && loop_count >= max_loops {
-                break;
-            }
-        } else {
-            break;
-        }
     }
 
-    Ok(())
+    // TODO(lucasw) need to be able to receive a signal to exit the looping
+    // Ok(())
 }
