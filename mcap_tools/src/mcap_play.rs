@@ -10,6 +10,16 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 use tokio::sync::broadcast;
 
+use std::time::Duration;
+
+use futures::{future::FutureExt, select, StreamExt};
+use futures_timer::Delay;
+
+use crossterm::{
+    event::{Event, EventStream, KeyCode},
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
+
 fn f64_secs_to_local_datetime(secs: f64) -> DateTime<chrono::prelude::Local> {
     let d = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs_f64(secs);
     let utc_datetime = DateTime::<chrono::Utc>::from(d);
@@ -212,6 +222,8 @@ async fn main() -> Result<(), anyhow::Error> {
     };
 
     {
+        enable_raw_mode()?;
+
         let mut handles = Vec::new();
         // TODO(lucasw) also want to be able to pause playback
         let (tx, mut _rx0) = broadcast::channel(4);
@@ -219,8 +231,10 @@ async fn main() -> Result<(), anyhow::Error> {
             // let msg_t_start = msg_t_start.clone();
             let rx = tx.subscribe();
             let handle = tokio::spawn(async move {
+                // have to add the carriage return in raw mode (which allows keypresses
+                // to trigger events without pressing enter)
                 log::info!(
-                    "first message time {msg_t0:.3}s ({:?})",
+                    "first message time {msg_t0:.3}s ({:?})\r",
                     f64_secs_to_local_datetime(msg_t0),
                 );
 
@@ -233,15 +247,63 @@ async fn main() -> Result<(), anyhow::Error> {
 
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
+        // a flag to exit playback early
+        let mut finish_playback = false;
         let mut loop_count = 0;
         loop {
             let wall_t0 = get_wall_time();
-            log::info!("{loop_count} send wall start time to play threads {wall_t0:.3}");
+            log::info!("{loop_count} send wall start time to play threads {wall_t0:.3}\r");
             tx.send(wall_t0)?;
 
             let duration = msg_t_end - msg_t_start;
-            log::info!("{loop_count} waiting for {duration:.3}s for playback to end");
-            tokio::time::sleep(tokio::time::Duration::from_secs((duration + 1.0) as u64)).await;
+            log::info!("{loop_count} waiting for {duration:.3}s for playback to end\r");
+            // tokio::time::sleep(tokio::time::Duration::from_secs((duration + 1.0) as u64)).await;
+
+            // look for key presses during this playback iteration
+            let mut term_reader = EventStream::new();
+
+            loop {
+                if (get_wall_time() - wall_t0) > duration {
+                    break;
+                }
+
+                let mut delay = Delay::new(Duration::from_millis(1_000)).fuse();
+                let mut event = term_reader.next().fuse();
+
+                select! {
+                    _ = delay => {},
+                    maybe_event = event => {
+                        match maybe_event {
+                            Some(Ok(event)) => {
+                                /*
+                                println!("Event::{:?}\n", event);
+                                if event == Event::Key(KeyCode::Char('c').into()) {
+                                    log::info!("c key");
+                                }
+                                */
+
+                                // spacebar
+                                if event == Event::Key(KeyCode::Char(' ').into()) {
+                                    // TODO(lucasw) broadcast a new msg_t0, wall_t0, and pause status
+                                    // to the playing threads
+                                    log::info!("TODO(lucasw) play/pause playback\r");
+                                }
+                                if event == Event::Key(KeyCode::Esc.into()) {
+                                    log::info!("escape key, quitting\r");
+                                    finish_playback = true;
+                                    break;
+                                }
+                            }
+                            Some(Err(e)) => println!("Error: {:?}\r", e),
+                            None => break,
+                        }
+                    }
+                };
+            }
+
+            if finish_playback {
+                break;
+            }
 
             loop_count += 1;
             if let Some(max_loops) = max_loops {
@@ -253,12 +315,16 @@ async fn main() -> Result<(), anyhow::Error> {
             }
         }
 
-        log::info!("waiting for {} tokio handles", handles.len());
-        for handle in handles {
-            handle.await?;
+        if !finish_playback {
+            log::info!("waiting for {} tokio handles\r", handles.len());
+            for handle in handles {
+                handle.await?;
+            }
+            log::info!("done with tokio handles\r");
         }
-        log::info!("done with tokio handles");
     }
+
+    disable_raw_mode()?;
 
     Ok(())
 }
@@ -277,7 +343,7 @@ async fn play(
         // and start over if needed, which means we need to try_recv on wall_t0_rx after every message
         // publish and periodically while sleeping between messages
         let wall_t0 = wall_t0_rx.recv().await?;
-        log::info!("{loop_count} {mcap_name} wall_t0 received {wall_t0}");
+        log::info!("{loop_count} {mcap_name} wall_t0 received {wall_t0}\r");
 
         let mut count = 0;
         for message_raw in mcap::MessageStream::new(mapped)? {
@@ -312,17 +378,20 @@ async fn play(
                         let _ = publisher.publish(&msg_with_header).await;
 
                         count += 1;
-                        log::debug!("{loop_count} {mcap_name} {count} {} publish", channel.topic);
+                        log::debug!(
+                            "{loop_count} {mcap_name} {count} {} publish\r",
+                            channel.topic
+                        );
                         // TODO(lucasw) publish a clock message
                     }
                 }
                 Err(e) => {
-                    log::warn!("{mcap_name} {:?}", e);
+                    log::warn!("{mcap_name} {:?}\r", e);
                 }
             }
         } // loop through all messages
 
-        log::info!("{loop_count} {mcap_name} published {count} messages");
+        log::info!("{loop_count} {mcap_name} published {count} messages\r");
         loop_count += 1;
         if let Some(max_loops) = max_loops {
             if max_loops > 0 && loop_count >= max_loops {

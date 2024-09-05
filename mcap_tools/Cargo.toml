@@ -10,6 +10,9 @@ anyhow = "1.0.86"
 camino = "1.1.7"
 chrono = "0.4.38"
 clap = { version = "4.5.16", features = ["cargo"] }
+crossterm = { version = "0.28.1", features = ["event-stream"] }
+futures = "0.3.30"
+futures-timer = "3.0.3"
 log = "0.4.22"
 mcap = "0.9.1"
 memmap = "0.7.0"
