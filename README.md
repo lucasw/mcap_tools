@@ -8,7 +8,7 @@ Setup on Ubuntu 22.04 and Debian Trixie using Debian Science Team ROS1 apt packa
 
 ```
 apt install python3-rosmsg rospack-tools libsensor-msgs-dev libstd-msgs-dev libgeometry-msgs-dev ros-sensor-msgs ros-std-msgs ros-geometry-msgs cargo pkg-config librust-openssl-dev
-ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs` cargo install --git https://github.com/lucasw/mcap_tools
+ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find std_srvs` cargo install --git https://github.com/lucasw/mcap_tools
 export PATH=$PATH:$HOME/.cargo/bin
 ```
 
