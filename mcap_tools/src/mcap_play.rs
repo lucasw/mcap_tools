@@ -20,6 +20,8 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 
+use crate::misc::tf2_msgs;
+
 fn f64_secs_to_local_datetime(secs: f64) -> DateTime<chrono::prelude::Local> {
     let d = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs_f64(secs);
     let utc_datetime = DateTime::<chrono::Utc>::from(d);
@@ -397,6 +399,12 @@ async fn play(
             get_wall_time() - wall_t0
         );
 
+        // TODO(lucasw) make this generic somehow?  In the case of tf_static and TFMessage we can
+        // aggregate all the static messages into one TFMessage, but what about other types of
+        // messages that are on static publishers?  (Any use cases that make that more worthy
+        // of attention?)
+        let mut tf_static_aggregated = tf2_msgs::TFMessage::default();
+
         let mut count = 0;
         for message_raw in mcap::MessageStream::new(mapped)? {
             match message_raw {
@@ -478,7 +486,32 @@ async fn play(
                             break;
                         }
 
-                        let _ = publisher.publish(&msg_with_header).await;
+                        // ugly special case to handle tf static aggregation
+                        // TODO(lucasW) this maybe be a little funny if the mcap contains
+                        // multiple static transforms with the same parent and child
+                        if channel.topic == "/tf_static" {
+                            // && channel.schema.unwrap().name == "tf2_msgs/TFMessage" {
+                            match serde_rosmsg::from_slice::<tf2_msgs::TFMessage>(&msg_with_header)
+                            {
+                                Ok(tf_msg) => {
+                                    log::info!(
+                                        "add {} transforms to tf_static",
+                                        tf_msg.transforms.len()
+                                    );
+                                    for transform in tf_msg.transforms {
+                                        tf_static_aggregated.transforms.push(transform);
+                                    }
+
+                                    let data = serde_rosmsg::to_vec(&tf_static_aggregated).unwrap();
+                                    let _ = publisher.publish(&data).await;
+                                }
+                                Err(err) => {
+                                    log::error!("{loop_count} {mcap_name} {err:?}");
+                                }
+                            }
+                        } else {
+                            let _ = publisher.publish(&msg_with_header).await;
+                        }
 
                         count += 1;
                         log::debug!(
