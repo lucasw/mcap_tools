@@ -85,13 +85,19 @@ async fn mcap_playback_init(
             }
             if !pubs.contains_key(&channel.topic) {
                 log::debug!("{mcap_name} topic {}, schema {:?}", channel.topic, schema);
+                let latching = {
+                    match channel.metadata.get("latching") {
+                        Some(latching) => latching == "1",
+                        None => false,
+                    }
+                };
                 let publisher = nh
                     .advertise_any(
                         &channel.topic,
                         &schema.name,
                         std::str::from_utf8(&schema.data.clone()).unwrap(),
                         10,
-                        false,
+                        latching,
                     )
                     .await?;
                 pubs.insert(channel.topic.clone(), publisher);
