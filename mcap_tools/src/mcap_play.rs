@@ -20,7 +20,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 
-use crate::misc::tf2_msgs;
+use crate::misc::{rosgraph_msgs, tf2_msgs};
 
 fn f64_secs_to_local_datetime(secs: f64) -> DateTime<chrono::prelude::Local> {
     let d = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs_f64(secs);
@@ -150,6 +150,13 @@ async fn main() -> Result<(), anyhow::Error> {
         )
         .arg(
             arg!(
+                -c --clock <CLOCK> "publish the clock time, most useful in combination with rosparam set /use_sim_time true"
+            )
+            .action(clap::ArgAction::SetTrue)
+            .required(false)
+        )
+        .arg(
+            arg!(
                 -e --regex <REGEX> "match topics using regular expressions"
             )
             .required(false)
@@ -171,6 +178,10 @@ async fn main() -> Result<(), anyhow::Error> {
     // convert Option(&u64) to Option(u64) with the copied()
     let max_loops = matches.get_one::<u64>("loop").copied();
     log::info!("max loop {max_loops:?}");
+
+    // TODO(lucasw) error if there is a /clock message in an mcap
+    let publish_clock = matches.get_one::<bool>("clock").copied().unwrap();
+    log::info!("publishing clock");
 
     let include_re;
     if let Some(regex_str) = matches.get_one::<String>("regex") {
@@ -253,6 +264,19 @@ async fn main() -> Result<(), anyhow::Error> {
 
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
+        let clock_publisher = {
+            let latching = false;
+            let queue_size = 10;
+            match publish_clock {
+                true => Some(
+                    nh.advertise::<rosgraph_msgs::Clock>("/clock", queue_size, latching)
+                        .await
+                        .unwrap(),
+                ),
+                false => None,
+            }
+        };
+
         // a flag to exit playback early
         let mut finish_playback = false;
         let mut loop_count = 0;
@@ -276,9 +300,20 @@ async fn main() -> Result<(), anyhow::Error> {
                     if playback_elapsed > duration + 1.0 {
                         break;
                     }
+
+                    if let Some(ref clock_publisher) = clock_publisher {
+                        let clock_seconds = msg_t_start + playback_elapsed;
+                        let clock_msg = rosgraph_msgs::Clock {
+                            clock: roslibrust_codegen::Time {
+                                secs: clock_seconds as u32,
+                                nsecs: ((clock_seconds % 1.0) * (1e9 as f64)) as u32,
+                            },
+                        };
+                        clock_publisher.publish(&clock_msg).await?;
+                    }
                 }
 
-                let mut delay = Delay::new(Duration::from_millis(1_000)).fuse();
+                let mut delay = Delay::new(Duration::from_millis(10)).fuse();
                 let mut event = term_reader.next().fuse();
 
                 select! {

@@ -8,7 +8,8 @@ Setup on Ubuntu 22.04 and Debian Trixie using Debian Science Team ROS1 apt packa
 
 ```
 apt install python3-rosmsg rospack-tools libsensor-msgs-dev libstd-msgs-dev libgeometry-msgs-dev ros-sensor-msgs ros-std-msgs ros-geometry-msgs cargo pkg-config librust-openssl-dev
-ROS_PACKAGE_PATH=`rospack find actionlib_msgs`:`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find std_srvs`:`rospack find tf2_msgs` cargo install --git https://github.com/lucasw/mcap_tools
+ROS_PACKAGE_PATH=`rospack find actionlib_msgs`:`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find rosgraph_msgs`:`rospack find std_srvs`:`rospack find tf2_msgs`
+cargo install --git https://github.com/lucasw/mcap_tools
 export PATH=$PATH:$HOME/.cargo/bin
 ```
 
@@ -43,25 +44,29 @@ data_2024_08_26_09_15_08_-07_00_00001.mcap
 ## build
 
 ```
-ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find std_srvs` cargo build --release
+# use ROS_PACKAGE_PATH from above
+cargo build --release
 ```
 
 ### build and run in one line (for development)
 
 Record all topics with sensors or odom in the full topic name to an mcap:
 ```
-ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find std_srvs` cargo run --release --bin mcap_record -- --regex "(.*)sensors(.*)|(.*)odom(.*)"
+# use ROS_PACKAGE_PATH from above
+cargo run --release --bin mcap_record -- --regex "(.*)sensors(.*)|(.*)odom(.*)"
 ```
 
 ```
-ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find std_srvs` cargo run --release --bin mcap_extract /path/to/some.mcap
+# use ROS_PACKAGE_PATH from above
+cargo run --release --bin mcap_extract /path/to/some.mcap
 ```
 
 ```
 # do a git commit before this to see changes
 cargo fmt --all
 # this only provides suggestions, doesn't change anything
-ROS_PACKAGE_PATH=`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find std_srvs` cargo clippy
+# use ROS_PACKAGE_PATH from above
+cargo clippy
 ```
 
 # existing mcap tools and information
