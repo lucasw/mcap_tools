@@ -77,7 +77,10 @@ async fn mcap_playback_init(
 
     let msg_t0 = stats.message_start_time as f64 / 1e9;
     let msg_t1 = stats.message_end_time as f64 / 1e9;
-    log::info!("{mcap_name} start time {msg_t0}, end time {msg_t1}");
+    log::info!(
+        "{mcap_name} start time {msg_t0}, end time {msg_t1}: duration {:.1}s",
+        msg_t1 - msg_t0
+    );
 
     let mut pubs = HashMap::new();
 
@@ -129,22 +132,19 @@ async fn mcap_playback_init(
     Ok((pubs, msg_t0, msg_t1))
 }
 
-#[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
-    // view log messages from roslibrust in stdout
-    simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
-        // .without_timestamps() // required for running wsl2
-        .init()
-        .unwrap();
-
-    let mut params = HashMap::<String, String>::new();
-    params.insert("_name".to_string(), "mcap_play".to_string());
-    let (_ns, full_node_name, unused_args) = misc::get_params(&mut params);
-    let master_uri =
-        std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
-
-    // non-ros cli args
+fn get_non_ros_cli_args(
+    unused_args: Vec<String>,
+) -> Result<
+    (
+        Option<u64>,
+        bool,
+        Option<Regex>,
+        Option<Regex>,
+        f64,
+        Vec<String>,
+    ),
+    anyhow::Error,
+> {
     let matches = command!()
         .arg(
             arg!(
@@ -170,6 +170,14 @@ async fn main() -> Result<(), anyhow::Error> {
             arg!(
                 -x --exclude <EXCLUDE_REGEX> "exclude topics matching the follow regular expression\r(subtracts from -a or regex"
             )
+            .required(false)
+        )
+        .arg(
+            arg!(
+                -s --start <SEC> "start SEC seconds into the mcap files"
+            )
+            .value_parser(clap::value_parser!(f64))
+            .default_value("0.0")
             .required(false)
         )
         .arg(
@@ -204,6 +212,42 @@ async fn main() -> Result<(), anyhow::Error> {
         exclude_re = None;
     }
 
+    let start_secs_offset = matches.get_one::<f64>("start").copied().unwrap();
+    log::info!("start_secs_offset {start_secs_offset:?}");
+
+    // TODO(lucasw) there must be a shorter way to get vector of strings here
+    let mcap_names: Vec<_> = matches.get_many::<String>("mcaps").unwrap().collect();
+    let mcap_names: Vec<String> = mcap_names.iter().map(|s| (**s).clone()).collect();
+    log::info!("{mcap_names:?}");
+
+    Ok((
+        max_loops,
+        publish_clock,
+        include_re,
+        exclude_re,
+        start_secs_offset,
+        mcap_names,
+    ))
+}
+
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
+    // view log messages from roslibrust in stdout
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Info)
+        // .without_timestamps() // required for running wsl2
+        .init()
+        .unwrap();
+
+    let mut params = HashMap::<String, String>::new();
+    params.insert("_name".to_string(), "mcap_play".to_string());
+    let (_ns, full_node_name, unused_args) = misc::get_params(&mut params);
+    let master_uri =
+        std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
+
+    let (max_loops, publish_clock, include_re, exclude_re, start_secs_offset, mcap_names) =
+        get_non_ros_cli_args(unused_args)?;
+
     // Setup a task to kill this process when ctrl_c comes in:
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.unwrap();
@@ -211,16 +255,10 @@ async fn main() -> Result<(), anyhow::Error> {
         std::process::exit(0);
     });
 
-    // TODO(lucasw) there must be a shorter way to get vector of strings here
-    let mcap_names: Vec<_> = matches.get_many::<String>("mcaps").unwrap().collect();
-    let mcap_names: Vec<String> = mcap_names.iter().map(|s| (**s).clone()).collect();
-    log::info!("{mcap_names:?}");
-
-    let mut msg_t_start = f64::MAX;
-    let mut msg_t_end: f64 = 0.0;
-
     let nh = roslibrust::ros1::NodeHandle::new(&master_uri, &full_node_name).await?;
-    let play_data = {
+    let (msg_t_start, msg_t_end, play_data) = {
+        let mut msg_t_start = f64::MAX;
+        let mut msg_t_end: f64 = 0.0;
         let mut play_data = Vec::new();
 
         for (ind, mcap_name) in mcap_names.iter().enumerate() {
@@ -249,10 +287,16 @@ async fn main() -> Result<(), anyhow::Error> {
             }
         }
 
+        msg_t_start += start_secs_offset;
+        log::info!(
+            ">>> start time {msg_t_start:.2}, end time {msg_t_end:.2}: duration {:.1}s <<<",
+            msg_t_end - msg_t_start
+        );
+
         if play_data.len() == 0 {
             panic!("no mcaps successfully loaded");
         }
-        play_data
+        (msg_t_start, msg_t_end, play_data)
     };
 
     {
@@ -268,7 +312,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 // have to add the carriage return in raw mode (which allows keypresses
                 // to trigger events without pressing enter)
                 log::info!(
-                    "first message time {msg_t0:.3}s ({:?})\r",
+                    "{mcap_name} first message time {msg_t0:.3}s ({:?})\r",
                     f64_secs_to_local_datetime(msg_t0),
                 );
 
@@ -545,8 +589,9 @@ async fn play(
                             {
                                 Ok(tf_msg) => {
                                     log::info!(
-                                        "add {} transforms to tf_static\r",
-                                        tf_msg.transforms.len()
+                                        "{loop_count} {mcap_name} adding {} transforms to tf_static, total{}\r",
+                                        tf_msg.transforms.len(),
+                                        tf_msg.transforms.len() + tf_static_aggregated.transforms.len(),
                                     );
                                     for transform in tf_msg.transforms {
                                         tf_static_aggregated.transforms.push(transform);
