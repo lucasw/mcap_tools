@@ -545,7 +545,7 @@ async fn play(
                             {
                                 Ok(tf_msg) => {
                                     log::info!(
-                                        "add {} transforms to tf_static",
+                                        "add {} transforms to tf_static\r",
                                         tf_msg.transforms.len()
                                     );
                                     for transform in tf_msg.transforms {
