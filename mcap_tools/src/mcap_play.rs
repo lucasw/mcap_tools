@@ -168,7 +168,7 @@ fn get_non_ros_cli_args(
         )
         .arg(
             arg!(
-                -x --exclude <EXCLUDE_REGEX> "exclude topics matching the follow regular expression\r(subtracts from -a or regex"
+                -x --exclude <EXCLUDE_REGEX> "exclude topics matching the follow regular expression (subtracts from include regex)"
             )
             .required(false)
         )
