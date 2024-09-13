@@ -62,12 +62,24 @@ async fn mcap_playback_init(
     include_re: &Option<Regex>,
     exclude_re: &Option<Regex>,
 ) -> Result<(HashMap<String, PublisherAny>, f64, f64), anyhow::Error> {
-    let mut pubs = HashMap::new();
-
     // TODO(lucasw) could create every publisher from the summary
     let summary = mcap::read::Summary::read(mapped)?;
     // let summary = summary.ok_or(Err(anyhow::anyhow!("no summary")))?;
     let summary = summary.ok_or(anyhow::anyhow!("{mcap_name} no summary"))?;
+
+    let stats = summary
+        .stats
+        .ok_or(anyhow::anyhow!("{mcap_name} no stats"))?;
+
+    if stats.message_count == 0 {
+        return Err(anyhow::anyhow!("{mcap_name} has no messages"));
+    }
+
+    let msg_t0 = stats.message_start_time as f64 / 1e9;
+    let msg_t1 = stats.message_end_time as f64 / 1e9;
+    log::info!("{mcap_name} start time {msg_t0}, end time {msg_t1}");
+
+    let mut pubs = HashMap::new();
 
     for channel in summary.channels.values() {
         if !use_topic(&channel.topic, include_re, exclude_re) {
@@ -113,13 +125,6 @@ async fn mcap_playback_init(
             continue;
         }
     } // loop through channels
-
-    let stats = summary
-        .stats
-        .ok_or(anyhow::anyhow!("{mcap_name} no stats"))?;
-    let msg_t0 = stats.message_start_time as f64 / 1e9;
-    let msg_t1 = stats.message_end_time as f64 / 1e9;
-    log::info!("{mcap_name} start time {msg_t0}, end time {msg_t1}");
 
     Ok((pubs, msg_t0, msg_t1))
 }
@@ -229,13 +234,23 @@ async fn main() -> Result<(), anyhow::Error> {
             let mapped = misc::map_mcap(mcap_name)?;
 
             // initialize the start times and publishers
-            let (pubs, msg_t0, msg_t1) =
-                mcap_playback_init(&nh, mcap_name, &mapped, &include_re, &exclude_re).await?;
+            let rv = mcap_playback_init(&nh, mcap_name, &mapped, &include_re, &exclude_re).await;
 
-            msg_t_start = msg_t_start.min(msg_t0);
-            msg_t_end = msg_t_end.max(msg_t1);
+            match rv {
+                Ok((pubs, msg_t0, msg_t1)) => {
+                    msg_t_start = msg_t_start.min(msg_t0);
+                    msg_t_end = msg_t_end.max(msg_t1);
+                    play_data.push((mcap_name.clone(), mapped, pubs, msg_t0, msg_t1));
+                }
+                Err(err) => {
+                    log::error!("{err:?}");
+                    continue;
+                }
+            }
+        }
 
-            play_data.push((mcap_name.clone(), mapped, pubs, msg_t0, msg_t1));
+        if play_data.len() == 0 {
+            panic!("no mcaps successfully loaded");
         }
         play_data
     };
