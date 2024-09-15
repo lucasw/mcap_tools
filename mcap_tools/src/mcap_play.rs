@@ -350,7 +350,7 @@ async fn main() -> Result<(), anyhow::Error> {
             msg_t_end - msg_t_start
         );
 
-        if play_data.len() == 0 {
+        if play_data.is_empty() {
             panic!("no mcaps successfully loaded");
         }
         (msg_t_start, tf_static_aggregated, msg_t_end, play_data)
@@ -440,7 +440,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         let clock_msg = rosgraph_msgs::Clock {
                             clock: roslibrust_codegen::Time {
                                 secs: clock_seconds as u32,
-                                nsecs: ((clock_seconds % 1.0) * (1e9 as f64)) as u32,
+                                nsecs: ((clock_seconds % 1.0) * 1e9_f64) as u32,
                             },
                         };
                         clock_publisher.publish(&clock_msg).await?;
@@ -551,16 +551,20 @@ async fn play(
         // TODO(lucasw) or only do this optionally
         loop {
             (wall_t0, msg_t0, paused, main_loop_count) = rx.recv().await?;
-            if main_loop_count < loop_count {
-                log::info!("{loop_count} wait for main loop count to catch up to this one > {main_loop_count}\r");
-                continue;
-            } else if main_loop_count == loop_count {
-                log::info!("{loop_count} main loop count and this one in sync, start playing back messages\r");
-                break;
-            } else {
-                log::warn!("{loop_count} somehow have skipped entire loop/s, catching up -> {main_loop_count}\r");
-                loop_count = main_loop_count;
-                break;
+            match main_loop_count {
+                _ if main_loop_count < loop_count => {
+                    log::info!("{loop_count} wait for main loop count to catch up to this one > {main_loop_count}\r");
+                    continue;
+                }
+                _ if main_loop_count == loop_count => {
+                    log::info!("{loop_count} main loop count and this one in sync, start playing back messages\r");
+                    break;
+                }
+                _ => {
+                    log::warn!("{loop_count} somehow have skipped entire loop/s, catching up -> {main_loop_count}\r");
+                    loop_count = main_loop_count;
+                    break;
+                }
             }
         }
         log::info!(
