@@ -107,26 +107,24 @@ async fn mcap_playback_init(
             // topic?  The easiest thing would be to save tf_static to a separate mcap in the
             // first place, more advanced would be for mcap_record to put all the statics
             // in a separate chunk but then 'mcap convert' wouldn't do that.
-            for message_raw in mcap::MessageStream::new(mapped)? {
-                if let Ok(message) = message_raw {
-                    if message.channel.topic != "/tf_static" {
-                        continue;
+            for message in (mcap::MessageStream::new(mapped)?).flatten() {
+                if message.channel.topic != "/tf_static" {
+                    continue;
+                }
+                let msg_with_header = misc::get_message_data_with_header(message.data);
+                match serde_rosmsg::from_slice::<tf2_msgs::TFMessage>(&msg_with_header) {
+                    Ok(tf_msg) => {
+                        log::info!(
+                            "{mcap_name} adding {} transforms to tf_static, total {}\r",
+                            tf_msg.transforms.len(),
+                            tf_msg.transforms.len() + tf_static_aggregated.transforms.len(),
+                        );
+                        for transform in tf_msg.transforms {
+                            tf_static_aggregated.transforms.push(transform);
+                        }
                     }
-                    let msg_with_header = misc::get_message_data_with_header(message.data);
-                    match serde_rosmsg::from_slice::<tf2_msgs::TFMessage>(&msg_with_header) {
-                        Ok(tf_msg) => {
-                            log::info!(
-                                "{mcap_name} adding {} transforms to tf_static, total {}\r",
-                                tf_msg.transforms.len(),
-                                tf_msg.transforms.len() + tf_static_aggregated.transforms.len(),
-                            );
-                            for transform in tf_msg.transforms {
-                                tf_static_aggregated.transforms.push(transform);
-                            }
-                        }
-                        Err(err) => {
-                            log::error!("{mcap_name} {err:?}");
-                        }
+                    Err(err) => {
+                        log::error!("{mcap_name} {err:?}");
                     }
                 }
             }
