@@ -61,6 +61,7 @@ async fn mcap_playback_init(
     mapped: &Mmap,
     include_re: &Option<Regex>,
     exclude_re: &Option<Regex>,
+    remaps: &HashMap<String, String>,
 ) -> Result<(HashMap<String, PublisherAny>, f64, f64), anyhow::Error> {
     // TODO(lucasw) could create every publisher from the summary
     let summary = mcap::read::Summary::read(mapped)?;
@@ -108,9 +109,17 @@ async fn mcap_playback_init(
                         None => false,
                     }
                 };
+
+                // remap a topic if it's in the remaps hashmap
+                let topic = {
+                    match remaps.get(&channel.topic) {
+                        Some(topic) => topic.to_string(),
+                        None => channel.topic.clone(),
+                    }
+                };
                 let publisher = nh
                     .advertise_any(
-                        &channel.topic,
+                        &topic,
                         &schema.name,
                         std::str::from_utf8(&schema.data.clone()).unwrap(),
                         10,
@@ -239,9 +248,14 @@ async fn main() -> Result<(), anyhow::Error> {
         .init()
         .unwrap();
 
-    let mut params = HashMap::<String, String>::new();
-    params.insert("_name".to_string(), "mcap_play".to_string());
-    let (_ns, full_node_name, unused_args) = misc::get_params(&mut params);
+    let (full_node_name, unused_args, remaps) = {
+        let mut params = HashMap::<String, String>::new();
+        params.insert("_name".to_string(), "mcap_play".to_string());
+        let mut remaps = HashMap::<String, String>::new();
+        let (_ns, full_node_name, unused_args) = misc::get_params_remaps(&mut params, &mut remaps);
+        (full_node_name, unused_args, remaps)
+    };
+
     let master_uri =
         std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
 
@@ -272,7 +286,8 @@ async fn main() -> Result<(), anyhow::Error> {
             let mapped = misc::map_mcap(mcap_name)?;
 
             // initialize the start times and publishers
-            let rv = mcap_playback_init(&nh, mcap_name, &mapped, &include_re, &exclude_re).await;
+            let rv = mcap_playback_init(&nh, mcap_name, &mapped, &include_re, &exclude_re, &remaps)
+                .await;
 
             match rv {
                 Ok((pubs, msg_t0, msg_t1)) => {

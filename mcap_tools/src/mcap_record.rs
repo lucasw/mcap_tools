@@ -274,7 +274,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut params = HashMap::<String, String>::new();
     params.insert("_name".to_string(), "mcap_record".to_string());
     // TODO(lucasw) parse := ros arguments with clap?
-    let (ns, full_node_name, unused_args) = misc::get_params(&mut params);
+    let mut _remaps = HashMap::<String, String>::new();
+    let (ns, full_node_name, unused_args) = misc::get_params_remaps(&mut params, &mut _remaps);
 
     let matches = command!()
         .arg(
