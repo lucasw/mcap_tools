@@ -128,6 +128,7 @@ async fn mcap_playback_init(
                     }
                 }
             }
+            continue;
         }
 
         if let Some(schema) = &channel.schema {
@@ -354,23 +355,34 @@ async fn main() -> Result<(), anyhow::Error> {
         (msg_t_start, tf_static_aggregated, msg_t_end, play_data)
     };
 
-    // publish all teh tf statics from all the mcaps together in one latched message
+    // publish all the tf statics from all the mcaps together in one latched message
     // unless we're excluding tf_static
-    if !tf_static_aggregated.transforms.is_empty() {
-        let topic = {
-            match remaps.get("/tf_static") {
-                Some(topic) => topic.to_string(),
-                None => "/tf_static".to_string(),
+    let _static_publisher = {
+        if !tf_static_aggregated.transforms.is_empty() {
+            for (ind, transform) in tf_static_aggregated.transforms.iter().enumerate() {
+                log::debug!(
+                    "{ind} static {} -> {}",
+                    transform.header.frame_id,
+                    transform.child_frame_id
+                );
             }
-        };
-        let latching = true;
-        let static_publisher = nh
-            .advertise::<tf2_msgs::TFMessage>(&topic, 10, latching)
-            .await?;
-        // Does having this go out of scope make it not work?
-        // No apparently not
-        static_publisher.publish(&tf_static_aggregated).await?;
-    }
+
+            let topic = {
+                match remaps.get("/tf_static") {
+                    Some(topic) => topic.to_string(),
+                    None => "/tf_static".to_string(),
+                }
+            };
+            let latching = true;
+            let static_publisher = nh
+                .advertise::<tf2_msgs::TFMessage>(&topic, 10, latching)
+                .await?;
+            static_publisher.publish(&tf_static_aggregated).await?;
+            Some(static_publisher)
+        } else {
+            None
+        }
+    };
 
     {
         enable_raw_mode()?;
