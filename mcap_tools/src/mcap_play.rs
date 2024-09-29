@@ -177,19 +177,15 @@ async fn mcap_playback_init(
     Ok((pubs, tf_static_aggregated, msg_t0, msg_t1))
 }
 
-fn get_non_ros_cli_args(
-    unused_args: Vec<String>,
-) -> Result<
-    (
-        Option<u64>,
-        bool,
-        Option<Regex>,
-        Option<Regex>,
-        f64,
-        Vec<String>,
-    ),
-    anyhow::Error,
-> {
+type PlayArgs = (
+    Option<u64>,
+    bool,
+    (Option<Regex>, Option<Regex>),
+    f64,
+    Vec<String>,
+);
+
+fn get_non_ros_cli_args(unused_args: Vec<String>) -> Result<PlayArgs, anyhow::Error> {
     let matches = command!()
         .arg(
             arg!(
@@ -268,8 +264,7 @@ fn get_non_ros_cli_args(
     Ok((
         max_loops,
         publish_clock,
-        include_re,
-        exclude_re,
+        (include_re, exclude_re),
         start_secs_offset,
         mcap_names,
     ))
@@ -295,7 +290,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let master_uri =
         std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
 
-    let (max_loops, publish_clock, include_re, exclude_re, start_secs_offset, mcap_names) =
+    let (max_loops, publish_clock, (include_re, exclude_re), start_secs_offset, mcap_names) =
         get_non_ros_cli_args(unused_args)?;
 
     // Setup a task to kill this process when ctrl_c comes in:
