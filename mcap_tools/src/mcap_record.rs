@@ -23,15 +23,15 @@ fn rename_active(mcap_name: &str) -> std::io::Result<()> {
 
 // start all the threads
 async fn mcap_record(
-    full_node_name: String,
-    prefix: String,
+    name_prefix_size: (String, String, u64),
     channel_receiver: mpsc::Receiver<(String, String, String)>,
     connection_summaries: Arc<Mutex<HashMap<String, BTreeMap<String, String>>>>,
     msg_receiver: mpsc::Receiver<(String, String, u64, u32, Vec<u8>)>,
     finish: Arc<AtomicBool>,
     num_received_messages: Arc<AtomicUsize>,
-    size_limit: u64,
 ) -> Result<(), anyhow::Error> {
+    let (full_node_name, prefix, size_limit) = name_prefix_size;
+
     // schemas should be able to persist across mcap file boundaries
     let schemas = Arc::new(Mutex::new(HashMap::new()));
 
@@ -385,14 +385,12 @@ async fn main() -> Result<(), anyhow::Error> {
     };
 
     let _ = mcap_record(
-        full_node_name,
-        prefix.to_string(),
+        (full_node_name, prefix.to_string(), size_limit),
         channel_receiver,
         connection_summaries.clone(),
         msg_receiver,
         finish.clone(),
         num_received_messages.clone(),
-        size_limit,
     )
     .await;
 
