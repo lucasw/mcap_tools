@@ -13,6 +13,8 @@ use std::time::SystemTime;
 use std::{collections::BTreeMap, fs, io::BufWriter};
 use tokio::time::Duration;
 
+use crate::misc::std_srvs;
+
 fn rename_active(mcap_name: &str) -> std::io::Result<()> {
     // TODO(lucasw) only replace last occurence
     let inactive_name = mcap_name.replace(".mcap.active", ".mcap");
@@ -21,16 +23,17 @@ fn rename_active(mcap_name: &str) -> std::io::Result<()> {
 
 // start all the threads
 async fn mcap_record(
-    full_node_name: String,
-    prefix: String,
+    name_prefix_size: (String, String, u64),
     channel_receiver: mpsc::Receiver<(String, String, String)>,
+    connection_summaries: Arc<Mutex<HashMap<String, BTreeMap<String, String>>>>,
     msg_receiver: mpsc::Receiver<(String, String, u64, u32, Vec<u8>)>,
+    finish: Arc<AtomicBool>,
     num_received_messages: Arc<AtomicUsize>,
-    size_limit: u64,
 ) -> Result<(), anyhow::Error> {
+    let (full_node_name, prefix, size_limit) = name_prefix_size;
+
     // schemas should be able to persist across mcap file boundaries
     let schemas = Arc::new(Mutex::new(HashMap::new()));
-    let finish = Arc::new(AtomicBool::new(false));
 
     // Setup a task to kill this process when ctrl_c comes in:
     {
@@ -104,7 +107,7 @@ async fn mcap_record(
                     let file_handle_metadata = file_handle.metadata();
                     if let Ok(file_handle_metadata) = file_handle_metadata {
                         let size_mb = file_handle_metadata.len() as f64 / (1024.0 * 1024.0);
-                        if count % 2000 == 0 {
+                        if count % 2000 == 1 {
                             log::info!("size {} / {size_limit} MB", size_mb as u64);
                         }
                         if size_mb > size_limit as f64 {
@@ -175,17 +178,39 @@ async fn mcap_record(
 
                             let schema = schemas.lock().unwrap().get(&topic_type).unwrap().clone();
 
+                            // TODO(lucasw) use Entry
+                            let connection_summary = {
+                                match connection_summaries.lock().unwrap().get(&topic) {
+                                    Some(connection_summary) => {
+                                        log_once::debug_once!("{full_node_name} '{topic}' have summary {connection_summary:?}");
+                                        connection_summary.clone()
+                                    }
+                                    None => {
+                                        log_once::warn_once!("{full_node_name} '{topic}' no connection summary for '{topic_type}' yet, leaving empty");
+                                        BTreeMap::<String, String>::default()
+                                    }
+                                }
+                            };
+
+                            // TODO(lucasw) need to create a BTreeMap and at least store the
+                            // md5sum and topic (though that's redundant with the channel topic)
+                            // in it to match what is in bags converted to mcap
+                            // by `mcap convert`, and if latching and callerid are available
+                            // put those in metadata also.
+
                             let channel = mcap::Channel {
                                 topic: topic.clone(),
                                 schema,
                                 message_encoding: "ros1".to_string(),
-                                metadata: BTreeMap::default(),
+                                metadata: connection_summary,
                             };
 
                             let channel_id =
                                 mcap_out.as_mut().unwrap().add_channel(&channel).unwrap();
                             vacant.insert(channel_id);
-                            log::debug!("{full_node_name} {topic} {topic_type} new channel {channel:?}");
+                            log::debug!(
+                                "{full_node_name} {topic} {topic_type} new channel {channel:?}"
+                            );
                             channel_id
                         }
                     };
@@ -217,7 +242,9 @@ async fn mcap_record(
                     // pressed
                     if e == mpsc::RecvTimeoutError::Timeout {
                         if finish.load(Ordering::SeqCst) {
-                            log::warn!("{full_node_name} finishing writing to {mcap_name} then exiting");
+                            log::warn!(
+                                "{full_node_name} finishing writing to {mcap_name} then exiting"
+                            );
                             mcap_out.unwrap().finish().unwrap();
                             let _ = rename_active(&mcap_name);
                             std::process::exit(0);
@@ -247,7 +274,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut params = HashMap::<String, String>::new();
     params.insert("_name".to_string(), "mcap_record".to_string());
     // TODO(lucasw) parse := ros arguments with clap?
-    let (ns, full_node_name, unused_args) = misc::get_params(&mut params);
+    let mut _remaps = HashMap::<String, String>::new();
+    let (ns, full_node_name, unused_args) = misc::get_params_remaps(&mut params, &mut _remaps);
 
     let matches = command!()
         .arg(
@@ -300,10 +328,14 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let time_str = {
         let now = chrono::prelude::Local::now();
-        let offset = now.offset().to_string().replace(":", "_");
-        format!("{}_{}_", now.format("%Y_%m_%d_%H_%M_%S").to_string(), offset)
+        let offset = now.offset().to_string().replace(':', "_");
+        format!("{}_{}_", now.format("%Y_%m_%d_%H_%M_%S"), offset)
     };
-    let prefix = matches.get_one::<String>("outputprefix").unwrap().to_owned() + &time_str;
+    let prefix = matches
+        .get_one::<String>("outputprefix")
+        .unwrap()
+        .to_owned()
+        + &time_str;
 
     let master_client = misc::get_master_client(&full_node_name).await?;
     let nh = {
@@ -319,13 +351,46 @@ async fn main() -> Result<(), anyhow::Error> {
     let (channel_sender, channel_receiver) = mpsc::sync_channel(800);
     let (msg_sender, msg_receiver) = mpsc::sync_channel(24000);
 
+    let connection_summaries = Arc::new(Mutex::new(HashMap::new()));
+
+    // signal to stop recording- TODO(lucasw) should be a sync_channel?
+    let finish = Arc::new(AtomicBool::new(false));
+
+    // service that can shut down recording
+    // TODO(lucasw) later have this start or stop recording, and optionally the node can start
+    let _stop_server_handle;
+    {
+        let finish = finish.clone();
+        let full_node_name = full_node_name.clone();
+        let server_fn = move |request: std_srvs::SetBoolRequest| -> Result<
+            std_srvs::SetBoolResponse,
+            Box<dyn std::error::Error + Send + Sync>,
+        > {
+            let mut text = format!("{full_node_name} set recording to: {request:?}");
+            log::info!("{text}");
+            if !request.data {
+                let warn_text = "- stop request, going to finish and exit".to_string();
+                log::warn!("{warn_text}");
+                text += &warn_text;
+                finish.store(true, Ordering::SeqCst);
+            }
+            Ok(std_srvs::SetBoolResponse {
+                success: true,
+                message: text.to_string(),
+            })
+        };
+        _stop_server_handle = nh
+            .advertise_service::<std_srvs::SetBool, _>("~/set_recording", server_fn)
+            .await?;
+    };
+
     let _ = mcap_record(
-        full_node_name,
-        prefix.to_string(),
+        (full_node_name, prefix.to_string(), size_limit),
         channel_receiver,
+        connection_summaries.clone(),
         msg_receiver,
+        finish.clone(),
         num_received_messages.clone(),
-        size_limit,
     )
     .await;
 
@@ -381,6 +446,7 @@ async fn main() -> Result<(), anyhow::Error> {
             let msg_sender = msg_sender.clone();
             let channel_sender = channel_sender.clone();
             let num_received_messages = num_received_messages.clone();
+            let connection_summaries = connection_summaries.clone();
 
             // let num_topics = topics.len();
 
@@ -404,30 +470,58 @@ async fn main() -> Result<(), anyhow::Error> {
                         Ok(data) => {
                             if channel_data.is_none() {
                                 log::debug!("get definition");
-                                let definition = nh.inner.get_definition(topic.clone()).await;
-                                match definition {
-                                    Ok(definition) => {
-                                        log::debug!("definition: '{definition}'");
-                                        let channel_data_inner =
-                                            (topic.clone(), topic_type.clone(), definition);
-                                        let send_rv =
-                                            channel_sender.send(channel_data_inner.clone());
-                                        match send_rv {
-                                            Ok(()) => {
-                                                channel_data = Some(());
-                                                // give some time for the receiver to process the
-                                                // new channel before sending a message below
-                                                tokio::time::sleep(Duration::from_millis(200))
-                                                    .await;
-                                            }
-                                            Err(e) => {
-                                                log::error!("{channel_data_inner:?} {arrival_ns_epoch} {e:?}");
-                                                continue;
-                                            }
-                                        }
+                                // TODO(lucasw) combine these calls, put the definition in the
+                                // summary?
+                                let connection_header =
+                                    nh.inner.get_connection_header(topic.clone()).await.unwrap();
+                                let definition = connection_header.msg_definition;
+                                log::debug!("definition: '{definition}'");
+
+                                let connection_summary = {
+                                    let mut connection_summary = BTreeMap::new();
+                                    // TODO(lucasw) which caller_id is this if there are multiple publishers
+                                    // on this topic?
+                                    connection_summary.insert(
+                                        "caller_id".to_string(),
+                                        connection_header.caller_id,
+                                    );
+                                    connection_summary.insert(
+                                        "latching".to_string(),
+                                        (connection_header.latching as u8).to_string(),
+                                    );
+                                    if let Some(md5sum) = connection_header.md5sum {
+                                        connection_summary.insert("md5sum".to_string(), md5sum);
+                                    }
+                                    // TODO(lucasw) not sure why this is stored here, but `mcap convert`
+                                    // puts it in mcap channel metadata
+                                    if let Some(topic) = connection_header.topic {
+                                        connection_summary.insert("topic".to_string(), topic);
+                                    }
+                                    connection_summary
+                                };
+
+                                log::info!(
+                                    "'{topic}' connection summary: '{connection_summary:?}'"
+                                );
+                                connection_summaries
+                                    .lock()
+                                    .unwrap()
+                                    .insert(topic.clone(), connection_summary);
+
+                                let channel_data_inner =
+                                    (topic.clone(), topic_type.clone(), definition);
+                                let send_rv = channel_sender.send(channel_data_inner.clone());
+                                match send_rv {
+                                    Ok(()) => {
+                                        channel_data = Some(());
+                                        // give some time for the receiver to process the
+                                        // new channel before sending a message below
+                                        tokio::time::sleep(Duration::from_millis(200)).await;
                                     }
                                     Err(e) => {
-                                        log::error!("get definition error {e:?}");
+                                        log::error!(
+                                            "{channel_data_inner:?} {arrival_ns_epoch} {e:?}"
+                                        );
                                         continue;
                                     }
                                 }

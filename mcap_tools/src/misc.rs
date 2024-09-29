@@ -44,7 +44,10 @@ pub async fn get_master_client(node_name: &str) -> Result<MasterClient, anyhow::
 /// params.insert("update_rate".to_string(), "5.0".to_string());
 ///
 /// returns full path node name, the namespace, and a vector of unused args
-pub fn get_params(params: &mut HashMap<String, String>) -> (String, String, Vec<String>) {
+pub fn get_params_remaps(
+    params: &mut HashMap<String, String>,
+    remaps: &mut HashMap<String, String>,
+) -> (String, String, Vec<String>) {
     // TODO(lucasw) generate a unique node name
     // let _ = params.try_insert("_name".to_string(), "node_tbd".to_string());
     if !params.contains_key("_name") {
@@ -64,14 +67,14 @@ pub fn get_params(params: &mut HashMap<String, String>) -> (String, String, Vec<
 
         let (mut key, val) = (key_val[0].to_string(), key_val[1].to_string());
         if !key.starts_with('_') {
-            println!("unused arg pair {key}:={val}- need to prefix name with underscore");
+            remaps.insert(key, val);
             continue;
         }
         key.replace_range(0..1, "");
 
         if !params.contains_key(&key) {
-            println!("unused '{key}' '{val}'");
-            continue;
+            println!("unexpected param: '{key}' '{val}'");
+            // continue;
         }
         params.insert(key, val);
     }
@@ -79,6 +82,25 @@ pub fn get_params(params: &mut HashMap<String, String>) -> (String, String, Vec<
 
     let ns = params.remove("_ns").unwrap();
     let full_node_name = &format!("/{}/{}", &ns, &params["_name"],).replace("//", "/");
+
+    let mut updated_remaps = HashMap::new();
+    // if the topic is relative, add the namespace here and update the remaps
+    for (topic_orig, topic_remap) in &mut *remaps {
+        let topic_orig = topic_orig.clone();
+        if !topic_remap.starts_with('/') {
+            let updated_topic_remap = format!("{ns}/{}", topic_remap).to_string();
+            updated_remaps.insert(topic_orig, updated_topic_remap);
+        } else {
+            updated_remaps.insert(topic_orig, topic_remap.to_string());
+        }
+        // TODO(lucasw) handle private topics with '~' leading?
+    }
+    *remaps = updated_remaps;
+    /*
+    for (topic_orig, topic_remap) in updated_remaps {
+        remaps.insert(topic_orig, topic_remap);
+    }
+    */
 
     (ns.to_string(), full_node_name.to_string(), args2)
 }
