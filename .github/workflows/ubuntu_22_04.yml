@@ -49,11 +49,24 @@ jobs:
           sudo apt install -yqq libros-rosgraph-msgs-dev python3-rosgraph-msgs ros-rosgraph-msgs
           sudo apt install -yqq librust-openssl-dev
           rospack find geometry_msgs
+          echo "ROS_PACKAGE_PATH=`rospack find actionlib_msgs`:`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find rosgraph_msgs`:`rospack find std_srvs`:`rospack find tf2_msgs`" > $GITHUB_ENV
+
+      - run: echo $ROS_PACKAGE_PATH
+
+      - run: echo "PATH=$PATH:$HOME/.cargo/bin" >> $GITHUB_ENV
+
+      - run: |
+          cd mcap_tools/mcap_tools
+          cargo fmt --check
+
+      - run: |
+          cd mcap_tools/mcap_tools
+          cargo clippy
 
       - name:
         run: |
           # TODO(lucasw) build docs, and run tests
           cd mcap_tools/mcap_tools
-          ROS_PACKAGE_PATH=`rospack find actionlib_msgs`:`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find rosgraph_msgs`:`rospack find std_srvs`:`rospack find tf2_msgs` cargo build --release
-          target/release/mcap_record --version
-          target/release/mcap_record --help
+          cargo install --path .
+          mcap_record --version
+          mcap_record --help
