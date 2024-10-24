@@ -65,7 +65,7 @@ async fn mcap_record(
                         count += 1;
                     } // make new schema
                     Err(e) => {
-                        log::error!("channel error, exiting ({e:?})");
+                        log::error!("channel finished with error {e:?}, exiting");
                         break;
                     }
                 }
@@ -220,7 +220,7 @@ async fn mcap_record(
                 }
                 Err(e) => {
                     log::error!(
-                        "{full_node_name} msg channel errored finishing this recording {e:?}"
+                        "{full_node_name} msg channel ended with {e:?}, finishing this recording"
                     );
                     mcap_out.unwrap().finish().unwrap();
                     let _ = rename_active(&mcap_name);
@@ -237,7 +237,7 @@ async fn mcap_record(
 async fn subscribe_task(
     topic: String,
     topic_type: String,
-    nh: roslibrust::ros1::NodeHandle,
+    nh: &roslibrust::ros1::NodeHandle,
     msg_sender: mpsc::Sender<(String, String, u64, u32, Vec<u8>)>,
     channel_sender: mpsc::Sender<(String, String, String)>,
     num_received_messages: Arc<AtomicUsize>,
@@ -247,6 +247,9 @@ async fn subscribe_task(
     log::info!("Subscribing to {topic} {topic_type}, queue_size {queue_size}");
     let mut subscriber = nh.subscribe_any(&topic, queue_size).await?;
 
+    // by cloning this we'll avoid the drop that unregisters all the subscribers,
+    // don't need that to happen for every subscriber
+    let nh_inner = nh.inner.clone();
     // let num_topics = topics.len();
 
     let sub = tokio::spawn(async move {
@@ -272,7 +275,7 @@ async fn subscribe_task(
                         // TODO(lucasw) combine these calls, put the definition in the
                         // summary?
                         let connection_header =
-                            nh.inner.get_connection_header(topic.clone()).await.unwrap();
+                            nh_inner.get_connection_header(topic.clone()).await.unwrap();
                         let definition = connection_header.msg_definition;
                         log::debug!("definition: '{definition}'");
 
@@ -344,7 +347,8 @@ async fn subscribe_task(
                 }
             }
         } // get new messages on this topic
-          // will get here if recv returns none, which means the subscriber is unregistered
+
+        // will get here if recv returns none, which means the subscriber is unregistered
         log::info!("done subscribing on this topic {topic}");
     }); // subscriber
     Ok(sub)
@@ -511,7 +515,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
                 for topic_and_type in &old_topics {
                     if !cur_topics.contains(topic_and_type) {
-                        log::debug!("topic removed {topic_and_type:?}");
+                        log::debug!("topic no longer active: {topic_and_type:?}");
                     }
                 }
 
@@ -521,7 +525,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     }
 
                     let (topic, topic_type) = topic_and_type.clone();
-                    log::debug!("new topic {topic}");
+                    // log::debug!("new topic {topic}");
 
                     // TODO(lucasw) topic_type matching would be useful as well
                     if let Some(ref re) = include_re {
@@ -538,10 +542,12 @@ async fn main() -> Result<(), anyhow::Error> {
                         }
                     }
 
+                    // TODO(lucasw) if the publisher goes away, then comes back, it will appear
+                    // like a new topic and spawn another one of these, need to avoid that
                     let _subscriber_handle = subscribe_task(
                         topic,
                         topic_type,
-                        nh.clone(),
+                        &nh,
                         msg_sender.clone(),
                         channel_sender.clone(),
                         num_received_messages.clone(),
