@@ -65,7 +65,7 @@ async fn mcap_record(
                         count += 1;
                     } // make new schema
                     Err(e) => {
-                        log::error!("channel finished with error {e:?}, exiting");
+                        log::warn!("channel receiver finished with {e:?}, exiting");
                         break;
                     }
                 }
@@ -219,8 +219,8 @@ async fn mcap_record(
                     count += 1;
                 }
                 Err(e) => {
-                    log::error!(
-                        "{full_node_name} msg channel ended with {e:?}, finishing this recording"
+                    log::warn!(
+                        "{full_node_name} msg channel ended with {e:?}, finishing {mcap_name}"
                     );
                     mcap_out.unwrap().finish().unwrap();
                     let _ = rename_active(&mcap_name);
@@ -349,7 +349,7 @@ async fn subscribe_task(
         } // get new messages on this topic
 
         // will get here if recv returns none, which means the subscriber is unregistered
-        log::info!("done subscribing on this topic {topic}");
+        log::warn!("done subscribing on this topic {topic}");
     }); // subscriber
     Ok(sub)
 }
@@ -358,7 +358,7 @@ async fn subscribe_task(
 async fn main() -> Result<(), anyhow::Error> {
     // view log messages from roslibrust in stdout
     simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Debug)
+        .with_level(log::LevelFilter::Info)
         // .without_timestamps() // required for running wsl2
         .init()
         .unwrap();
@@ -489,6 +489,7 @@ async fn main() -> Result<(), anyhow::Error> {
     )
     .await;
 
+    let mut subscriptions = HashMap::new();
     let mut old_topics = HashSet::<(String, String)>::new();
     loop {
         tokio::select! {
@@ -514,13 +515,25 @@ async fn main() -> Result<(), anyhow::Error> {
                 };
 
                 for topic_and_type in &old_topics {
-                    if !cur_topics.contains(topic_and_type) {
-                        log::debug!("topic no longer active: {topic_and_type:?}");
+                    if !cur_topics.contains(topic_and_type) && subscriptions.contains_key(topic_and_type) {
+                        // Keep subscribing anyway, it shouldn't consume much to subscribe and not
+                        // receive anything, and then it'll resume automatically if a publisher
+                        // comes back
+                        log::info!("subscribed topic no longer active: {topic_and_type:?}");
                     }
                 }
 
                 for topic_and_type in &cur_topics {
                     if old_topics.contains(topic_and_type) {
+                        continue;
+                    }
+
+                    // keep track of everything already subscribed to,
+                    // if a publisher goes away and comes back it'll appear back here as new
+                    // TODO(lucasw) don't really need an 'old_topics' if tracking everything else
+                    // here
+                    if subscriptions.contains_key(topic_and_type) {
+                        log::info!("already recording from {topic_and_type:?}");
                         continue;
                     }
 
@@ -542,9 +555,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         }
                     }
 
-                    // TODO(lucasw) if the publisher goes away, then comes back, it will appear
-                    // like a new topic and spawn another one of these, need to avoid that
-                    let _subscriber_handle = subscribe_task(
+                    let handle = subscribe_task(
                         topic,
                         topic_type,
                         &nh,
@@ -553,6 +564,8 @@ async fn main() -> Result<(), anyhow::Error> {
                         num_received_messages.clone(),
                         connection_summaries.clone(),
                     ).await;
+
+                    subscriptions.insert(topic_and_type.clone(), handle);
                 } // loop through current topics
 
                 old_topics = cur_topics.clone().to_owned();
