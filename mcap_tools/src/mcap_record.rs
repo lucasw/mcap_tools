@@ -17,6 +17,7 @@ use crate::misc::std_srvs;
 
 fn rename_active(mcap_name: &str) -> std::io::Result<()> {
     // TODO(lucasw) only replace last occurence
+    log::debug!("removing .active from {mcap_name}");
     let inactive_name = mcap_name.replace(".mcap.active", ".mcap");
     std::fs::rename(mcap_name, inactive_name)
 }
@@ -27,28 +28,13 @@ async fn mcap_record(
     channel_receiver: mpsc::Receiver<(String, String, String)>,
     connection_summaries: Arc<Mutex<HashMap<String, BTreeMap<String, String>>>>,
     msg_receiver: mpsc::Receiver<(String, String, u64, u32, Vec<u8>)>,
-    finish: Arc<AtomicBool>,
+    // finish: Arc<AtomicBool>,
     num_received_messages: Arc<AtomicUsize>,
 ) -> Result<(), anyhow::Error> {
     let (full_node_name, prefix, size_limit) = name_prefix_size;
 
     // schemas should be able to persist across mcap file boundaries
     let schemas = Arc::new(Mutex::new(HashMap::new()));
-
-    // Setup a task to kill this process when ctrl_c comes in:
-    {
-        let finish = finish.clone();
-        let full_node_name = full_node_name.clone();
-        tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.unwrap();
-            // TODO(lucasw) give the msg receiver thread a chance to cleanly finish the mcap
-            finish.store(true, Ordering::SeqCst);
-            log::warn!("{full_node_name} ctrl-c, going to finish");
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            log::error!("{full_node_name} exiting without finished mcap");
-            std::process::exit(0);
-        });
-    }
 
     // a thread to listen on channel_receiver
     {
@@ -79,8 +65,8 @@ async fn mcap_record(
                         count += 1;
                     } // make new schema
                     Err(e) => {
-                        log::error!("{e:?}");
-                        // break;
+                        log::error!("channel error, exiting ({e:?})");
+                        break;
                     }
                 }
             } // loop on new channels
@@ -129,10 +115,12 @@ async fn mcap_record(
                         file_handle = Some(file_handle_raw.try_clone().unwrap());
                         mcap_out =
                             Some(mcap::Writer::new(BufWriter::new(file_handle_raw)).unwrap());
+                        /*
                         fn print_type_of<T>(_: &T) {
                             println!("type: {}", std::any::type_name::<T>());
                         }
                         print_type_of(&mcap_out);
+                        */
 
                         channel_ids.clear();
                     }
@@ -143,14 +131,7 @@ async fn mcap_record(
                 }
             }
 
-            if finish.load(Ordering::SeqCst) {
-                log::warn!("{full_node_name} finishing writing to {mcap_name} then exiting");
-                mcap_out.unwrap().finish().unwrap();
-                let _ = rename_active(&mcap_name);
-                std::process::exit(0);
-            }
-
-            let rv = msg_receiver.recv_timeout(Duration::from_millis(400));
+            let rv = msg_receiver.recv(); // _timeout(Duration::from_millis(400));
             match rv {
                 Ok(rv) => {
                     let (topic, topic_type, arrival_ns_epoch, sequence, data): (
@@ -238,35 +219,142 @@ async fn mcap_record(
                     count += 1;
                 }
                 Err(e) => {
-                    // this covers the case where no more message have been received but ctrl-c is
-                    // pressed
-                    if e == mpsc::RecvTimeoutError::Timeout {
-                        if finish.load(Ordering::SeqCst) {
-                            log::warn!(
-                                "{full_node_name} finishing writing to {mcap_name} then exiting"
-                            );
-                            mcap_out.unwrap().finish().unwrap();
-                            let _ = rename_active(&mcap_name);
-                            std::process::exit(0);
-                        }
-                        continue;
-                    }
-                    log::error!("{full_node_name} {e:?}");
+                    log::error!(
+                        "{full_node_name} msg channel errored finishing this recording {e:?}"
+                    );
+                    mcap_out.unwrap().finish().unwrap();
+                    let _ = rename_active(&mcap_name);
                     break;
                 }
             }
         } // loop
-        log::info!("{full_node_name} {count} message written");
+        log::info!("{full_node_name} {count} messages written");
     });
 
     Ok(())
 } // mcap_record
 
+async fn subscribe_task(
+    topic: String,
+    topic_type: String,
+    nh: roslibrust::ros1::NodeHandle,
+    msg_sender: mpsc::Sender<(String, String, u64, u32, Vec<u8>)>,
+    channel_sender: mpsc::Sender<(String, String, String)>,
+    num_received_messages: Arc<AtomicUsize>,
+    connection_summaries: Arc<Mutex<HashMap<String, BTreeMap<String, String>>>>,
+) -> Result<tokio::task::JoinHandle<()>, anyhow::Error> {
+    let queue_size = 2000;
+    log::info!("Subscribing to {topic} {topic_type}, queue_size {queue_size}");
+    let mut subscriber = nh.subscribe_any(&topic, queue_size).await?;
+
+    // let num_topics = topics.len();
+
+    let sub = tokio::spawn(async move {
+        // distribute initial subscriber load in time
+        // tokio::time::sleep(tokio::time::Duration::from_millis(100 + rand::random::<u64>() % 800)).await;
+        // tokio::time::sleep(tokio::time::Duration::from_millis(200 + num_topics as u64 * 2)).await;
+        // tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        let mut sequence = 0;
+        let mut channel_data = None;
+        // TODO(lucasw) seeing some message arrive repeatedly, but only if the
+        // publisher starts after this node does?
+        while let Some(data) = subscriber.next().await {
+            // TODO(lucasw) u64 will only get us to the year 2554...
+            let arrival_ns_epoch = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64;
+
+            match data {
+                Ok(data) => {
+                    if channel_data.is_none() {
+                        log::debug!("get definition");
+                        // TODO(lucasw) combine these calls, put the definition in the
+                        // summary?
+                        let connection_header =
+                            nh.inner.get_connection_header(topic.clone()).await.unwrap();
+                        let definition = connection_header.msg_definition;
+                        log::debug!("definition: '{definition}'");
+
+                        let connection_summary = {
+                            let mut connection_summary = BTreeMap::new();
+                            // TODO(lucasw) which caller_id is this if there are multiple publishers
+                            // on this topic?
+                            connection_summary
+                                .insert("caller_id".to_string(), connection_header.caller_id);
+                            connection_summary.insert(
+                                "latching".to_string(),
+                                (connection_header.latching as u8).to_string(),
+                            );
+                            if let Some(md5sum) = connection_header.md5sum {
+                                connection_summary.insert("md5sum".to_string(), md5sum);
+                            }
+                            // TODO(lucasw) not sure why this is stored here, but `mcap convert`
+                            // puts it in mcap channel metadata
+                            if let Some(topic) = connection_header.topic {
+                                connection_summary.insert("topic".to_string(), topic);
+                            }
+                            connection_summary
+                        };
+
+                        log::info!("'{topic}' connection summary: '{connection_summary:?}'");
+                        connection_summaries
+                            .lock()
+                            .unwrap()
+                            .insert(topic.clone(), connection_summary);
+
+                        let channel_data_inner = (topic.clone(), topic_type.clone(), definition);
+                        let send_rv = channel_sender.send(channel_data_inner.clone());
+                        match send_rv {
+                            Ok(()) => {
+                                channel_data = Some(());
+                                // give some time for the receiver to process the
+                                // new channel before sending a message below
+                                tokio::time::sleep(Duration::from_millis(200)).await;
+                            }
+                            Err(e) => {
+                                log::error!("{channel_data_inner:?} {arrival_ns_epoch} {e:?}");
+                                continue;
+                            }
+                        }
+                    }
+
+                    let send_rv = msg_sender.send((
+                        topic.clone(),
+                        topic_type.clone(),
+                        arrival_ns_epoch,
+                        sequence,
+                        data,
+                    ));
+                    match send_rv {
+                        Ok(()) => {}
+                        Err(e) => {
+                            // panic will only exit this one receiver thread, but should
+                            // stop everything here
+                            log::error!("couldn't send message {topic} {topic_type} {arrival_ns_epoch} {sequence} {e:?}");
+                            std::process::exit(1);
+                        }
+                    }
+                    sequence += 1;
+                    num_received_messages.fetch_add(1, Ordering::SeqCst);
+                }
+                Err(e) => {
+                    log::error!("{topic} {topic_type} get message data error {e:?}");
+                    continue;
+                }
+            }
+        } // get new messages on this topic
+          // will get here if recv returns none, which means the subscriber is unregistered
+        log::info!("done subscribing on this topic {topic}");
+    }); // subscriber
+    Ok(sub)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     // view log messages from roslibrust in stdout
     simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
+        .with_level(log::LevelFilter::Debug)
         // .without_timestamps() // required for running wsl2
         .init()
         .unwrap();
@@ -338,7 +426,7 @@ async fn main() -> Result<(), anyhow::Error> {
         + &time_str;
 
     let master_client = misc::get_master_client(&full_node_name).await?;
-    let nh = {
+    let mut nh = {
         let master_uri =
             std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
         roslibrust::ros1::NodeHandle::new(&master_uri, &full_node_name).await?
@@ -348,8 +436,10 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // create a tokio thread for every topic that appears, and send all received data to a thread
     // that does writing to mcap
-    let (channel_sender, channel_receiver) = mpsc::sync_channel(800);
-    let (msg_sender, msg_receiver) = mpsc::sync_channel(24000);
+    // let (channel_sender, channel_receiver) = mpsc::sync_channel(800);
+    // let (msg_sender, msg_receiver) = mpsc::sync_channel(24000);
+    let (channel_sender, channel_receiver) = mpsc::channel();
+    let (msg_sender, msg_receiver) = mpsc::channel();
 
     let connection_summaries = Arc::new(Mutex::new(HashMap::new()));
 
@@ -357,7 +447,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let finish = Arc::new(AtomicBool::new(false));
 
     // service that can shut down recording
-    // TODO(lucasw) later have this start or stop recording, and optionally the node can start
+    // TODO(lucasw) later have this start or stop recording, and optionally the node can start in
+    // a stopped state
     let _stop_server_handle;
     {
         let finish = finish.clone();
@@ -385,179 +476,83 @@ async fn main() -> Result<(), anyhow::Error> {
     };
 
     let _ = mcap_record(
-        (full_node_name, prefix.to_string(), size_limit),
+        (full_node_name.clone(), prefix.to_string(), size_limit),
         channel_receiver,
         connection_summaries.clone(),
         msg_receiver,
-        finish.clone(),
+        // finish.clone(),
         num_received_messages.clone(),
     )
     .await;
 
     let mut old_topics = HashSet::<(String, String)>::new();
     loop {
-        // TODO(lucasw) optionally limit to namespace of this node (once this node can be launched into
-        // a namespace)
-        let topics = master_client.get_published_topics(ns.clone()).await?;
-        let cur_topics = {
-            let mut cur_topics = HashSet::<(String, String)>::new();
-            for (topic_name, topic_type) in &topics {
-                cur_topics.insert(((*topic_name).clone(), (*topic_type).clone()));
-                // log::debug!("{topic_name} - {topic_type}");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                log::warn!("{full_node_name} ctrl-c, finish recording and exit");
+                // this will stop existing subscribers
+                nh.unregister_all_subscribers().await;
+                // exiting this loop will prevent any new subscriptions from being made
+                break;
             }
-            cur_topics
-        };
+            _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                // TODO(lucasw) limit number of new subscriptions per loop here?
+                // TODO(lucasw) optionally limit to namespace of this node (once this node can be launched into
+                // a namespace)
+                let topics = master_client.get_published_topics(ns.clone()).await?;
+                let cur_topics = {
+                    let mut cur_topics = HashSet::<(String, String)>::new();
+                    for (topic_name, topic_type) in &topics {
+                        cur_topics.insert(((*topic_name).clone(), (*topic_type).clone()));
+                        // log::debug!("{topic_name} - {topic_type}");
+                    }
+                    cur_topics
+                };
 
-        for topic_and_type in &old_topics {
-            if !cur_topics.contains(topic_and_type) {
-                log::debug!("removed {topic_and_type:?}");
-            }
-        }
-
-        for topic_and_type in &cur_topics {
-            if old_topics.contains(topic_and_type) {
-                continue;
-            }
-
-            let (topic, topic_type) = topic_and_type.clone();
-
-            // TODO(lucasw) topic_type matching would be useful as well
-            if let Some(ref re) = include_re {
-                if re.captures(&topic).is_none() {
-                    log::debug!("not recording from {topic}");
-                    continue;
+                for topic_and_type in &old_topics {
+                    if !cur_topics.contains(topic_and_type) {
+                        log::debug!("topic removed {topic_and_type:?}");
+                    }
                 }
-            }
 
-            if let Some(ref re) = exclude_re {
-                if re.captures(&topic).is_some() {
-                    log::info!("excluding recording from {topic}");
-                    continue;
-                }
-            }
+                for topic_and_type in &cur_topics {
+                    if old_topics.contains(topic_and_type) {
+                        continue;
+                    }
 
-            // TODO(lucasw) should this be inside the thread?
-            log::info!("Subscribing to {topic} {topic_type}");
-            let queue_size = 2000;
-            let mut subscriber = nh.subscribe_any(&topic, queue_size).await?;
+                    let (topic, topic_type) = topic_and_type.clone();
+                    log::debug!("new topic {topic}");
 
-            // maybe should do arc mutex
-            let nh = nh.clone();
-            let msg_sender = msg_sender.clone();
-            let channel_sender = channel_sender.clone();
-            let num_received_messages = num_received_messages.clone();
-            let connection_summaries = connection_summaries.clone();
-
-            // let num_topics = topics.len();
-
-            let _sub = tokio::spawn(async move {
-                // distribute initial subscriber load in time
-                // tokio::time::sleep(tokio::time::Duration::from_millis(100 + rand::random::<u64>() % 800)).await;
-                // tokio::time::sleep(tokio::time::Duration::from_millis(200 + num_topics as u64 * 2)).await;
-                // tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-                let mut sequence = 0;
-                let mut channel_data = None;
-                // TODO(lucasw) seeing some message arrive repeatedly, but only if the
-                // publisher starts after this node does?
-                while let Some(data) = subscriber.next().await {
-                    // TODO(lucasw) u64 will only get us to the year 2554...
-                    let arrival_ns_epoch = SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos() as u64;
-
-                    match data {
-                        Ok(data) => {
-                            if channel_data.is_none() {
-                                log::debug!("get definition");
-                                // TODO(lucasw) combine these calls, put the definition in the
-                                // summary?
-                                let connection_header =
-                                    nh.inner.get_connection_header(topic.clone()).await.unwrap();
-                                let definition = connection_header.msg_definition;
-                                log::debug!("definition: '{definition}'");
-
-                                let connection_summary = {
-                                    let mut connection_summary = BTreeMap::new();
-                                    // TODO(lucasw) which caller_id is this if there are multiple publishers
-                                    // on this topic?
-                                    connection_summary.insert(
-                                        "caller_id".to_string(),
-                                        connection_header.caller_id,
-                                    );
-                                    connection_summary.insert(
-                                        "latching".to_string(),
-                                        (connection_header.latching as u8).to_string(),
-                                    );
-                                    if let Some(md5sum) = connection_header.md5sum {
-                                        connection_summary.insert("md5sum".to_string(), md5sum);
-                                    }
-                                    // TODO(lucasw) not sure why this is stored here, but `mcap convert`
-                                    // puts it in mcap channel metadata
-                                    if let Some(topic) = connection_header.topic {
-                                        connection_summary.insert("topic".to_string(), topic);
-                                    }
-                                    connection_summary
-                                };
-
-                                log::info!(
-                                    "'{topic}' connection summary: '{connection_summary:?}'"
-                                );
-                                connection_summaries
-                                    .lock()
-                                    .unwrap()
-                                    .insert(topic.clone(), connection_summary);
-
-                                let channel_data_inner =
-                                    (topic.clone(), topic_type.clone(), definition);
-                                let send_rv = channel_sender.send(channel_data_inner.clone());
-                                match send_rv {
-                                    Ok(()) => {
-                                        channel_data = Some(());
-                                        // give some time for the receiver to process the
-                                        // new channel before sending a message below
-                                        tokio::time::sleep(Duration::from_millis(200)).await;
-                                    }
-                                    Err(e) => {
-                                        log::error!(
-                                            "{channel_data_inner:?} {arrival_ns_epoch} {e:?}"
-                                        );
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            let send_rv = msg_sender.send((
-                                topic.clone(),
-                                topic_type.clone(),
-                                arrival_ns_epoch,
-                                sequence,
-                                data,
-                            ));
-                            match send_rv {
-                                Ok(()) => {}
-                                Err(e) => {
-                                    // panic will only exit this one receiver thread, but should
-                                    // stop everything here
-                                    log::error!("couldn't send message {topic} {topic_type} {arrival_ns_epoch} {sequence} {e:?}");
-                                    std::process::exit(1);
-                                }
-                            }
-                            sequence += 1;
-                            num_received_messages.fetch_add(1, Ordering::SeqCst);
-                        }
-                        Err(e) => {
-                            log::error!("{topic} {topic_type} get message data error {e:?}");
+                    // TODO(lucasw) topic_type matching would be useful as well
+                    if let Some(ref re) = include_re {
+                        if re.captures(&topic).is_none() {
+                            log::debug!("not recording from {topic}");
                             continue;
                         }
                     }
-                } // get new messages on this topic
-            }); // subscriber
-        } // loop through current topics
-        tokio::time::sleep(Duration::from_millis(250)).await;
 
-        old_topics = cur_topics.clone().to_owned();
+                    if let Some(ref re) = exclude_re {
+                        if re.captures(&topic).is_some() {
+                            log::info!("excluding recording from {topic}");
+                            continue;
+                        }
+                    }
+
+                    let _subscriber_handle = subscribe_task(
+                        topic,
+                        topic_type,
+                        nh.clone(),
+                        msg_sender.clone(),
+                        channel_sender.clone(),
+                        num_received_messages.clone(),
+                        connection_summaries.clone(),
+                    ).await;
+                } // loop through current topics
+
+                old_topics = cur_topics.clone().to_owned();
+            }
+        }
     }
 
-    // Ok(())
+    Ok(())
 }
