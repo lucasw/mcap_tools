@@ -79,7 +79,7 @@ async fn mcap_playback_init(
     let msg_t0 = stats.message_start_time as f64 / 1e9;
     let msg_t1 = stats.message_end_time as f64 / 1e9;
     log::info!(
-        "{mcap_name} start time {msg_t0}, end time {msg_t1}: duration {:.1}s",
+        "{mcap_name} start time {msg_t0:.1}, end time {msg_t1:.1}: duration {:.1}s",
         msg_t1 - msg_t0
     );
 
@@ -379,30 +379,8 @@ async fn main() -> Result<(), anyhow::Error> {
         }
     };
 
+    let mut handles = Vec::new();
     {
-        enable_raw_mode()?;
-
-        let mut handles = Vec::new();
-        // TODO(lucasw) also want to be able to pause playback
-        let (tx, mut _rx0) = broadcast::channel(4);
-        for (mcap_name, mapped, pubs, msg_t0, _msg_t1) in play_data {
-            // let msg_t_start = msg_t_start.clone();
-            let rx = tx.subscribe();
-            let handle = tokio::spawn(async move {
-                // have to add the carriage return in raw mode (which allows keypresses
-                // to trigger events without pressing enter)
-                log::info!(
-                    "{mcap_name} first message time {msg_t0:.3}s ({:?})\r",
-                    f64_secs_to_local_datetime(msg_t0),
-                );
-
-                play(&mcap_name, &mapped, &pubs, rx).await.unwrap();
-            });
-            handles.push(handle);
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
         let clock_publisher = {
             let latching = false;
             let queue_size = 10;
@@ -416,23 +394,48 @@ async fn main() -> Result<(), anyhow::Error> {
             }
         };
 
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        enable_raw_mode()?;
+
+        // TODO(lucasw) also want to be able to pause playback
+        let (clock_tx, mut _clock_rx0) = broadcast::channel(20);
+        for (mcap_name, mapped, pubs, msg_t0, _msg_t1) in play_data {
+            // let msg_t_start = msg_t_start.clone();
+            let clock_rx = clock_tx.subscribe();
+            let handle = tokio::spawn(async move {
+                // have to add the carriage return in raw mode (which allows keypresses
+                // to trigger events without pressing enter)
+                log::info!(
+                    "{mcap_name} first message time {msg_t0:.3}s ({:?})\r",
+                    f64_secs_to_local_datetime(msg_t0),
+                );
+
+                let _rv = play_one_mcap(&mcap_name, &mapped, &pubs, clock_rx).await;
+            });
+            handles.push(handle);
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
         // a flag to exit playback early
         let mut finish_playback = false;
         let mut loop_count = 0;
         let mut paused = false;
         loop {
+            // loop over all mcaps
             // how much time has elapsed of playback time, excluding any time spent paused
             let mut playback_elapsed = 0.0;
 
             let mut wall_t0 = get_wall_time();
             let duration = msg_t_end - msg_t_start;
-            log::info!("{loop_count} ##### send wall start time to play threads {wall_t0:.3} for {duration:.1}s\r");
-            tx.send((wall_t0, msg_t_start, paused, loop_count))?;
 
             // look for key presses during this playback iteration
             let mut term_reader = EventStream::new();
 
+            // TODO(lucasw) put this inside a function
+            log::info!("starting clock\r");
             loop {
+                // advance time within one playback cycle
                 let wall_t = get_wall_time();
                 if !paused {
                     playback_elapsed = wall_t - wall_t0;
@@ -440,8 +443,10 @@ async fn main() -> Result<(), anyhow::Error> {
                         break;
                     }
 
+                    let clock_seconds = msg_t_start + playback_elapsed;
+                    clock_tx.send((clock_seconds, msg_t_start))?;
+
                     if let Some(ref clock_publisher) = clock_publisher {
-                        let clock_seconds = msg_t_start + playback_elapsed;
                         let clock_msg = rosgraph_msgs::Clock {
                             clock: roslibrust_codegen::Time {
                                 secs: clock_seconds as u32,
@@ -477,7 +482,6 @@ async fn main() -> Result<(), anyhow::Error> {
                                         wall_t0 = wall_t - playback_elapsed + 1.0;
                                     }
                                     log::info!("paused: {paused}\r");
-                                    tx.send((wall_t0, msg_t_start, paused, loop_count))?;
                                 }
 
                                 if event == Event::Key(KeyEvent::new(
@@ -515,9 +519,6 @@ async fn main() -> Result<(), anyhow::Error> {
             } else {
                 break;
             }
-
-            // signal all the threads they need to restart their loops
-            tx.send((wall_t0, msg_t_start, paused, loop_count))?;
         }
 
         /*
@@ -529,147 +530,154 @@ async fn main() -> Result<(), anyhow::Error> {
             log::info!("done with tokio handles\r");
         }
         */
+        disable_raw_mode()?;
     }
 
-    disable_raw_mode()?;
+    // clock_tx going out of scope should bring down every play_one_mcap task
+    log::info!("awaiting {} handles", handles.len());
+    for handle in handles {
+        let _ = handle.await;
+    }
+    log::info!("done");
 
     Ok(())
 }
 
-async fn play(
+async fn wait_for_playback_time(
+    clock_rx: &mut broadcast::Receiver<(f64, f64)>,
+    msg_time: Option<f64>,
+) -> Result<(f64, f64), broadcast::error::RecvError> {
+    let mut lagged_count = 0;
+    let mut last_clock_t = 0.0;
+    loop {
+        // if the clock_tx goes out of scope this will return an error
+        let rv = clock_rx.recv().await;
+        match rv {
+            // get the current playback time and start of playback time
+            Ok((clock_t, msg_t0)) => {
+                if lagged_count > 0 {
+                    log::warn!("done being lagged {lagged_count}\r");
+                    lagged_count = 0;
+                }
+                if clock_t < last_clock_t {
+                    // TODO(lucasw) enum within Ok, or return an error?
+                    log::warn!(
+                        "TODO(lucasw) time went backwards, need to go back to start of mcap\r"
+                    );
+                }
+                last_clock_t = clock_t;
+
+                match msg_time {
+                    None => {
+                        // if no time is provided, just wait for the start time
+                        // give the playback time to be able to skip per msg_t0 messages
+                        let margin_s = 2.0;
+                        if clock_t > msg_t0 - margin_s {
+                            return Ok((clock_t, msg_t0));
+                        }
+                    }
+                    Some(msg_time) => {
+                        if clock_t > msg_time {
+                            return Ok((clock_t, msg_t0));
+                        }
+                    }
+                }
+            }
+            Err(broadcast::error::RecvError::Lagged(num)) => {
+                if lagged_count == 0 {
+                    log::warn!("lagged, need to catch up {num}\r");
+                }
+                lagged_count += 1;
+            }
+            Err(broadcast::error::RecvError::Closed) => {
+                return Err(broadcast::error::RecvError::Closed);
+            }
+        }
+    }
+}
+
+async fn play_one_mcap(
     mcap_name: &str,
     mapped: &Mmap,
     pubs: &HashMap<String, PublisherAny>,
-    mut rx: broadcast::Receiver<(f64, f64, bool, u64)>,
-) -> Result<(), anyhow::Error> {
+    mut clock_rx: broadcast::Receiver<(f64, f64)>,
+    // TODO(lucasw) instead of anyhow map all the actual errors into new error, first one is
+    // RecvError::Closed
+) -> Result<(u64, u64), anyhow::Error> {
+    // TODO(lucasw) could return number of messages published as well as loop count
     let mut loop_count = 0;
+    let mut count = 0;
     loop {
-        // TODO(lucasw) if a new wall_t0 is received mid playback it should interrupt it
-        // and start over if needed, which means we need to try_recv on wall_t0_rx after every message
-        // publish and periodically while sleeping between messages
-        let mut wall_t0;
-        let mut msg_t0;
-        let mut paused;
-        let mut main_loop_count;
-
-        // wait for loop start
-        // TODO(lucasw) or only do this optionally
-        loop {
-            (wall_t0, msg_t0, paused, main_loop_count) = rx.recv().await?;
-            match main_loop_count {
-                _ if main_loop_count < loop_count => {
-                    log::info!("{loop_count} wait for main loop count to catch up to this one > {main_loop_count}\r");
-                    continue;
-                }
-                _ if main_loop_count == loop_count => {
-                    log::info!("{loop_count} main loop count and this one in sync, start playing back messages\r");
-                    break;
-                }
-                _ => {
-                    log::warn!("{loop_count} somehow have skipped entire loop/s, catching up -> {main_loop_count}\r");
-                    loop_count = main_loop_count;
-                    break;
-                }
-            }
-        }
+        // don't want to start getting messages out of mcap until it's the right time, I think that
+        // may cause memory to be used unnecessarily (which will be a big issue if playing back 20
+        // mcaps that go in sequence)
+        // TODO(lucasw) maybe shouldn't even have the mapped handle yet, wait to open
+        let (mut clock_t, mut msg_t0) = wait_for_playback_time(&mut clock_rx, None).await?;
         log::info!(
-            "{loop_count} {mcap_name} ## start {wall_t0:.3} ({:.3}), {msg_t0:.3}, paused {paused}\r",
-            get_wall_time() - wall_t0
+            "{loop_count} {mcap_name}, clock {clock_t:.1}, msg t start {msg_t0:.1}, elapsed {:.1}\r", clock_t - msg_t0
         );
 
-        let mut count = 0;
+        let mut skipping = 0;
         for message_raw in mcap::MessageStream::new(mapped)? {
             match message_raw {
                 Ok(message) => {
-                    let channel = message.channel;
+                    let topic = &message.channel.topic;
 
-                    // TODO(lucasw) unnecessary with pubs.get below?
-                    if !pubs.contains_key(&channel.topic) {
-                        continue;
-                    }
-
-                    let msg_with_header = misc::get_message_data_with_header(message.data);
-                    if let Some(publisher) = pubs.get(&channel.topic) {
-                        let msg_time = message.log_time as f64 / 1e9;
-                        if msg_time < msg_t0 {
+                    let rv = pubs.get(topic);
+                    match rv {
+                        None => {
+                            // probably excluded this topic
                             continue;
                         }
-
-                        // get a new pause state possibly and wait for right time to publish this
-                        // message
-                        loop {
-                            let wall_time = get_wall_time();
-
-                            let rv = rx.try_recv();
-                            match rv {
-                                Err(_err) => {
-                                    // There's no new message, continue on
-                                    // TODO(lucasw) handle TryRecvError::Lagged
-                                }
-                                Ok((new_wall_t0, new_msg_t0, new_paused, new_loop_count)) => {
-                                    wall_t0 = new_wall_t0;
-                                    msg_t0 = new_msg_t0;
-                                    paused = new_paused;
-                                    main_loop_count = new_loop_count;
-                                    if main_loop_count != loop_count {
-                                        log::info!("{loop_count} not publishing this message, have a new loop count {main_loop_count}");
-                                        break;
-                                    }
-                                    log::info!("{loop_count} {mcap_name} {wall_t0:.3} ({:.3}), {msg_t0:.3}, ({:.3}), paused {paused}\r",
-                                        wall_time - wall_t0,
-                                        msg_time - msg_t0);
-                                }
-                            }
-
-                            if paused {
-                                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                        Some(publisher) => {
+                            // All the messages are extracted in log_time order (or publish_time?
+                            // They're the same here)
+                            let msg_with_header = misc::get_message_data_with_header(message.data);
+                            let msg_time = message.log_time as f64 / 1e9;
+                            if msg_time < msg_t0 {
                                 continue;
                             }
 
-                            // TODO(lucasw) check again if msg_time < msg_t0, because msg_t0
-                            // may be different?
-
-                            let msg_elapsed = msg_time - msg_t0;
-                            let wall_elapsed = wall_time - wall_t0;
-                            let dt = msg_elapsed - wall_elapsed;
-
-                            // if dt < 0.0 then playback is lagging behind the wallclock
-                            // need to play back messages as fast as possible without sleeping
-                            // until caught up
-                            // TODO(lucasw) if dt is too negative then skip publishing until caught up?
-                            if dt <= 50.0 {
-                                if dt > 0.0 {
-                                    // sleep remainder then publish
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(
-                                        (dt * 1000.0) as u64,
-                                    ))
-                                    .await;
+                            let elapsed = clock_t - msg_t0;
+                            let threshold_s = 1.0;
+                            // expect this to be positive, with the first message in the future
+                            let delta_s = msg_time - clock_t;
+                            // but if it's negative we're lagging some, a little is okay though
+                            if -delta_s > threshold_s {
+                                if skipping == 0 {
+                                    log::warn!("{loop_count} {mcap_name} lagging {delta_s:.2}s, elapsed {elapsed:0.1}, skipping playback of this message {topic}, {count} already published\r");
                                 }
-                                break;
+                                skipping += 1;
+                                continue;
+                            } else if delta_s > 0.0 {
+                                // clock_t < msg_time, normal case
+                                // don't want mcap looping to return an error here because this
+                                // convenient exits this entire function,
+                                // TODO(lucasw) though could make a single
+                                // pass through an mcap a dedicated function, then handle errors
+                                // differently in the looping caller
+                                let (new_clock_t, new_msg_t0) =
+                                    wait_for_playback_time(&mut clock_rx, Some(msg_time)).await?;
+                                clock_t = new_clock_t;
+                                // TODO(lucasw) there's no mechanism to alter msg_t0 yet, but this
+                                // supports it if one is added
+                                msg_t0 = new_msg_t0;
                             }
 
-                            // need to loop if it isn't time to publish yet and continue to look
-                            // for changes in pause state
-                            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                        } // check for new received state repeatedly
+                            // having made it here, the message is in the time window to be able to publish
+                            skipping = 0;
 
-                        if main_loop_count != loop_count {
-                            log::info!("{loop_count} ending this loop, have a new loop count {main_loop_count}");
-                            break;
+                            let _ = publisher.publish(&msg_with_header).await;
+
+                            count += 1;
+                            if count % 1000 == 0 {
+                                log::debug!("{loop_count} {mcap_name} {count} {topic} publish\r");
+                            }
                         }
-
-                        let _ = publisher.publish(&msg_with_header).await;
-
-                        count += 1;
-                        log::debug!(
-                            "{loop_count} {mcap_name} {count} {} publish\r",
-                            channel.topic
-                        );
-                        // TODO(lucasw) publish a clock message
                     }
                 }
                 Err(e) => {
-                    log::warn!("{mcap_name} {:?}\r", e);
+                    log::warn!("{loop_count} {mcap_name} {:?}\r", e);
                 }
             }
         } // loop through all messages
@@ -678,6 +686,7 @@ async fn play(
         loop_count += 1;
     }
 
-    // TODO(lucasw) need to be able to receive a signal to exit the looping
-    // Ok(())
+    // There are multiple paths above to exit out, all via '?', but would rather they made it here
+    // instead if it's the normal process of RecvError::Closed
+    // Ok((loop_count, count))
 }
