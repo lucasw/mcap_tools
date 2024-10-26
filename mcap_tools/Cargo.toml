@@ -62,5 +62,9 @@ name = "mcap_play"
 path = "src/mcap_play.rs"
 
 [[bin]]
+name = "mcap_rates"
+path = "src/bin/rates.rs"
+
+[[bin]]
 name = "mcap_record"
 path = "src/mcap_record.rs"
