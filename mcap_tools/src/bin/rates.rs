@@ -78,7 +78,7 @@ fn main() -> Result<(), anyhow::Error> {
         let mut topic_names: Vec<&String> = topic_datas.keys().clone().collect();
         topic_names.sort_unstable();
 
-        fn get_sorted_indices(list: &[f64]) -> Vec<usize> {
+        fn get_sorted_indices<T: PartialOrd>(list: &Vec<T>) -> Vec<usize> {
             let mut indices = (0..list.len()).collect::<Vec<_>>();
             indices.sort_by(|&a, &b| list[a].partial_cmp(&list[b]).unwrap());
             indices
@@ -90,60 +90,84 @@ fn main() -> Result<(), anyhow::Error> {
             if num < 2 {
                 println!("{topic_name} {num} message");
             } else {
-                let mut dts = nalgebra::DVector::zeros(num - 1);
-                let mut dts_sorted = Vec::new(); // with_capacity(num - 1);
-                dts_sorted.resize(num - 1, 0.0);
-                for i in 0..(num - 1) {
-                    let dt = topic_data[i + 1].log_time - topic_data[i].log_time;
-                    dts[i] = dt;
-                    dts_sorted[i] = dt;
+                {
+                    let mut dts = nalgebra::DVector::zeros(num - 1);
+                    let mut dts_sorted = Vec::new(); // with_capacity(num - 1);
+                    dts_sorted.resize(num - 1, 0.0);
+                    for i in 0..(num - 1) {
+                        let dt = topic_data[i + 1].log_time - topic_data[i].log_time;
+                        dts[i] = dt;
+                        dts_sorted[i] = dt;
+                    }
+                    let sort_indices = get_sorted_indices(&dts_sorted);
+                    // dts_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+                    let num_bins = 7;
+                    let mut bins = Vec::with_capacity(num_bins); // new().resize(bins, 0.0);
+                    for i in 0..num_bins {
+                        let ind = num * i / num_bins;
+                        bins.push(dts_sorted[sort_indices[ind]]);
+                    }
+                    /*
+                    let half_num = num / 2;
+                    let median;
+                    if num % 2 == 0 {
+                        median = (dts_sorted[half_num - 1] + dts_sorted[half_num]) / 2.0;
+                    } else {
+                        median = dts_sorted[half_num];
+                    }*/
+
+                    let longest_gap_ind = *sort_indices.last().unwrap();
+                    let longest_gap = dts_sorted[longest_gap_ind];
+
+                    let gap_start = topic_data.first().unwrap().log_time - message_start_time;
+                    let gap_end = message_end_time - topic_data.last().unwrap().log_time;
+
+                    // TODO(lucasw) can know these values much earlier from the summary, but want to
+                    // immediately go into each and histogram of gaps between messages
+                    let rate = num as f64 / elapsed;
+                    // TODO(lucasw) instead of printing, put all the stats into a struct for outputting
+                    // into a toml file
+                    println!("{topic_name}");
+                    println!("    {rate:.2}Hz {num}");
+                    println!("    rx time gap mean: {:.3}, std dev {:0.3}, min {:0.3}, max {longest_gap:0.1}\n    start gap: {gap_start:.3}, end gap: {gap_end:.3}",
+                        dts.mean(),
+                        dts.variance().sqrt(),
+                        dts_sorted[sort_indices[0]],
+                    );
+                    println!(
+                        "    relative time of longest gap ({longest_gap:.1}s): {:.3}s {:.1}%",
+                        topic_data[longest_gap_ind].log_time - message_start_time,
+                        100.0 * longest_gap_ind as f64 / num as f64,
+                    );
+                    print!("    bins: ");
+                    for bin in bins {
+                        print!("{bin:.3} ");
+                    }
+                    println!();
+                } // gaps
+
+                // message size
+                {
+                    let mut szs = nalgebra::DVector::zeros(num);
+                    let mut szs_sorted = vec![0, num];
+                    for i in 0..num {
+                        let sz = topic_data[i].size;
+                        szs[i] = sz;
+                        szs_sorted[i] = sz;
+                    }
+                    let sort_indices = get_sorted_indices(&szs_sorted);
+                    // szs_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+                    let smallest_sz_ind = *sort_indices.last().unwrap();
+                    let smallest_sz = szs_sorted[smallest_sz_ind];
+                    let largest_sz_ind = *sort_indices.last().unwrap();
+                    let largest_sz = szs_sorted[largest_sz_ind];
+
+                    // TODO(lucasw) many messages are all the same size, this will only be
+                    // interesting for compressed images and similar dynamic payloads
+                    println!("    {smallest_sz}b - {largest_sz}b");
                 }
-                let sort_indices = get_sorted_indices(&dts_sorted);
-                // dts_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-                let num_bins = 7;
-                let mut bins = Vec::with_capacity(num_bins); // new().resize(bins, 0.0);
-                for i in 0..num_bins {
-                    let ind = num * i / num_bins;
-                    bins.push(dts_sorted[sort_indices[ind]]);
-                }
-                /*
-                let half_num = num / 2;
-                let median;
-                if num % 2 == 0 {
-                    median = (dts_sorted[half_num - 1] + dts_sorted[half_num]) / 2.0;
-                } else {
-                    median = dts_sorted[half_num];
-                }*/
-
-                let longest_gap_ind = *sort_indices.last().unwrap();
-                let longest_gap = dts_sorted[longest_gap_ind];
-
-                let gap_start = topic_data.first().unwrap().log_time - message_start_time;
-                let gap_end = message_end_time - topic_data.last().unwrap().log_time;
-
-                // TODO(lucasw) can know these values much earlier from the summary, but want to
-                // immediately go into each and histogram of gaps between messages
-                let rate = num as f64 / elapsed;
-                // TODO(lucasw) instead of printing, put all the stats into a struct for outputting
-                // into a toml file
-                println!("{topic_name}");
-                println!("    {rate:.2}Hz {num}");
-                println!("    rx time gap mean: {:.3}, std dev {:0.3}, min {:0.3}, max {longest_gap:0.1}\n    start gap: {gap_start:.3}, end gap: {gap_end:.3}",
-                    dts.mean(),
-                    dts.variance().sqrt(),
-                    dts_sorted[sort_indices[0]],
-                );
-                println!(
-                    "    relative time of longest gap ({longest_gap:.1}s): {:.3}s {:.1}%",
-                    topic_data[longest_gap_ind].log_time - message_start_time,
-                    100.0 * longest_gap_ind as f64 / num as f64,
-                );
-                print!("    bins: ");
-                for bin in bins {
-                    print!("{bin:.3} ");
-                }
-                println!();
             }
         }
     }
