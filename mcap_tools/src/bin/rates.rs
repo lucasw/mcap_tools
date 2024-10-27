@@ -16,6 +16,29 @@ use mcap_tools::misc;
 use simple_logger::SimpleLogger;
 use std::collections::HashMap;
 
+fn get_sorted_indices<T: PartialOrd>(list: &Vec<T>) -> Vec<usize> {
+    let mut indices = (0..list.len()).collect::<Vec<_>>();
+    indices.sort_by(|&a, &b| list[a].partial_cmp(&list[b]).unwrap());
+    indices
+}
+
+fn get_bins<T: Copy>(vals: &Vec<T>, sort_indices: &Vec<usize>, num_bins: usize) -> Vec<T> {
+    // TODO(lucasw) can a fn have a same-size requirement for input vectors?
+    // TODO(lucasw) return a Result and error on these
+    assert!(vals.len() == sort_indices.len());
+    assert!(!vals.is_empty());
+    let num = vals.len();
+    let mut bins = Vec::with_capacity(num_bins); // new().resize(bins, 0.0);
+    for i in 0..(num_bins + 1) {
+        let mut ind = num * i / num_bins;
+        if ind == vals.len() {
+            ind -= 1;
+        }
+        bins.push(vals[sort_indices[ind]]);
+    }
+    bins
+}
+
 fn main() -> Result<(), anyhow::Error> {
     SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
@@ -78,17 +101,23 @@ fn main() -> Result<(), anyhow::Error> {
         let mut topic_names: Vec<&String> = topic_datas.keys().clone().collect();
         topic_names.sort_unstable();
 
-        fn get_sorted_indices<T: PartialOrd>(list: &Vec<T>) -> Vec<usize> {
-            let mut indices = (0..list.len()).collect::<Vec<_>>();
-            indices.sort_by(|&a, &b| list[a].partial_cmp(&list[b]).unwrap());
-            indices
+        fn bins_text<T: std::fmt::Debug>(bins: &Vec<T>) -> String {
+            let mut text = "".to_string();
+            for bin in bins {
+                text += &format!(" {bin:.3?}");
+            }
+            text
         }
 
         for topic_name in topic_names {
             let topic_data = topic_datas.get(topic_name).unwrap();
+            let gap_start = topic_data.first().unwrap().log_time - message_start_time;
+            let gap_end = message_end_time - topic_data.last().unwrap().log_time;
+
             let num = topic_data.len();
             if num < 2 {
                 println!("{topic_name} {num} message");
+                println!("    start gap: {gap_start:.3}, end gap: {gap_end:.3}");
             } else {
                 {
                     let mut dts = nalgebra::DVector::zeros(num - 1);
@@ -102,12 +131,8 @@ fn main() -> Result<(), anyhow::Error> {
                     let sort_indices = get_sorted_indices(&dts_sorted);
                     // dts_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-                    let num_bins = 7;
-                    let mut bins = Vec::with_capacity(num_bins); // new().resize(bins, 0.0);
-                    for i in 0..num_bins {
-                        let ind = num * i / num_bins;
-                        bins.push(dts_sorted[sort_indices[ind]]);
-                    }
+                    let bins = get_bins(&dts_sorted, &sort_indices, 7);
+
                     /*
                     let half_num = num / 2;
                     let median;
@@ -120,9 +145,6 @@ fn main() -> Result<(), anyhow::Error> {
                     let longest_gap_ind = *sort_indices.last().unwrap();
                     let longest_gap = dts_sorted[longest_gap_ind];
 
-                    let gap_start = topic_data.first().unwrap().log_time - message_start_time;
-                    let gap_end = message_end_time - topic_data.last().unwrap().log_time;
-
                     // TODO(lucasw) can know these values much earlier from the summary, but want to
                     // immediately go into each and histogram of gaps between messages
                     let rate = num as f64 / elapsed;
@@ -130,27 +152,24 @@ fn main() -> Result<(), anyhow::Error> {
                     // into a toml file
                     println!("{topic_name}");
                     println!("    {rate:.2}Hz {num}");
-                    println!("    rx time gap mean: {:.3}, std dev {:0.3}, min {:0.3}, max {longest_gap:0.1}\n    start gap: {gap_start:.3}, end gap: {gap_end:.3}",
+                    println!("    rx time gap mean: {:.3}, std dev {:0.3}, min {:0.3}, max {longest_gap:0.1}",
                         dts.mean(),
                         dts.variance().sqrt(),
                         dts_sorted[sort_indices[0]],
                     );
+                    println!("    start gap: {gap_start:.3}, end gap: {gap_end:.3}");
                     println!(
                         "    relative time of longest gap ({longest_gap:.1}s): {:.3}s {:.1}%",
                         topic_data[longest_gap_ind].log_time - message_start_time,
                         100.0 * longest_gap_ind as f64 / num as f64,
                     );
-                    print!("    bins: ");
-                    for bin in bins {
-                        print!("{bin:.3} ");
-                    }
-                    println!();
+                    println!("    gap bins seconds: {}", bins_text(&bins));
                 } // gaps
 
                 // message size
                 {
                     let mut szs = nalgebra::DVector::zeros(num);
-                    let mut szs_sorted = vec![0, num];
+                    let mut szs_sorted = vec![0; num];
                     for i in 0..num {
                         let sz = topic_data[i].size;
                         szs[i] = sz;
@@ -159,14 +178,20 @@ fn main() -> Result<(), anyhow::Error> {
                     let sort_indices = get_sorted_indices(&szs_sorted);
                     // szs_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-                    let smallest_sz_ind = *sort_indices.last().unwrap();
+                    let smallest_sz_ind = *sort_indices.first().unwrap();
                     let smallest_sz = szs_sorted[smallest_sz_ind];
                     let largest_sz_ind = *sort_indices.last().unwrap();
                     let largest_sz = szs_sorted[largest_sz_ind];
 
                     // TODO(lucasw) many messages are all the same size, this will only be
                     // interesting for compressed images and similar dynamic payloads
-                    println!("    {smallest_sz}b - {largest_sz}b");
+                    if smallest_sz != largest_sz {
+                        // println!("    {smallest_sz}b - {largest_sz}b");
+                        let bins = get_bins(&szs_sorted, &sort_indices, 7);
+                        println!("    bytes bins: {}", bins_text(&bins));
+                    } else {
+                        println!("    {smallest_sz}b (all)");
+                    }
                 }
             }
         }
