@@ -78,6 +78,12 @@ fn main() -> Result<(), anyhow::Error> {
         let mut topic_names: Vec<&String> = topic_datas.keys().clone().collect();
         topic_names.sort_unstable();
 
+        fn get_sorted_indices(list: &[f64]) -> Vec<usize> {
+            let mut indices = (0..list.len()).collect::<Vec<_>>();
+            indices.sort_by(|&a, &b| list[a].partial_cmp(&list[b]).unwrap());
+            indices
+        }
+
         for topic_name in topic_names {
             let topic_data = topic_datas.get(topic_name).unwrap();
             let num = topic_data.len();
@@ -92,13 +98,14 @@ fn main() -> Result<(), anyhow::Error> {
                     dts[i] = dt;
                     dts_sorted[i] = dt;
                 }
-                dts_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let sort_indices = get_sorted_indices(&dts_sorted);
+                // dts_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
                 let num_bins = 7;
                 let mut bins = Vec::with_capacity(num_bins); // new().resize(bins, 0.0);
                 for i in 0..num_bins {
                     let ind = num * i / num_bins;
-                    bins.push(dts_sorted[ind]);
+                    bins.push(dts_sorted[sort_indices[ind]]);
                 }
                 /*
                 let half_num = num / 2;
@@ -109,6 +116,9 @@ fn main() -> Result<(), anyhow::Error> {
                     median = dts_sorted[half_num];
                 }*/
 
+                let longest_gap_ind = *sort_indices.last().unwrap();
+                let longest_gap = dts_sorted[longest_gap_ind];
+
                 let gap_start = topic_data.first().unwrap().log_time - message_start_time;
                 let gap_end = message_end_time - topic_data.last().unwrap().log_time;
 
@@ -118,9 +128,17 @@ fn main() -> Result<(), anyhow::Error> {
                 // TODO(lucasw) instead of printing, put all the stats into a struct for outputting
                 // into a toml file
                 println!("{topic_name}");
-                println!("{rate:.2}Hz {num}");
-                println!("log time gap mean: {:.3}, std dev {:0.3}, min {:0.3}, max {:0.1}\n    start gap: {gap_start:.3}, end gap: {gap_end:.3}",
-                    dts.mean(), dts.variance().sqrt(), dts_sorted.first().unwrap(), dts_sorted.last().unwrap());
+                println!("    {rate:.2}Hz {num}");
+                println!("    rx time gap mean: {:.3}, std dev {:0.3}, min {:0.3}, max {longest_gap:0.1}\n    start gap: {gap_start:.3}, end gap: {gap_end:.3}",
+                    dts.mean(),
+                    dts.variance().sqrt(),
+                    dts_sorted[sort_indices[0]],
+                );
+                println!(
+                    "    relative time of longest gap ({longest_gap:.1}s): {:.3}s {:.1}%",
+                    topic_data[longest_gap_ind].log_time - message_start_time,
+                    100.0 * longest_gap_ind as f64 / num as f64,
+                );
                 print!("    bins: ");
                 for bin in bins {
                     print!("{bin:.3} ");
