@@ -13,6 +13,7 @@
 use clap::{arg, command};
 use mcap_tools::misc;
 // use ordered_float::NotNan;
+use serde_derive::{Deserialize, Serialize};
 use simple_logger::SimpleLogger;
 use std::collections::HashMap;
 
@@ -39,6 +40,13 @@ fn get_bins<T: Copy>(vals: &Vec<T>, sort_indices: &Vec<usize>, num_bins: usize) 
     bins
 }
 
+// for reading/writing tomls
+#[derive(Deserialize, Serialize, Debug)]
+struct TopicStats {
+    name: String,
+    rate: Option<f64>,
+}
+
 fn main() -> Result<(), anyhow::Error> {
     SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
@@ -57,6 +65,8 @@ fn main() -> Result<(), anyhow::Error> {
     let mcap_names: Vec<String> = mcap_names.iter().map(|s| (**s).clone()).collect();
     log::info!("mcaps: {mcap_names:?}");
 
+    // TODO(lucasw) not yet sure how multiple mcaps are supposed to be handled-
+    // commingle them all together?  Should duplicate messages be identified and deduplicated?
     for mcap_name in mcap_names {
         log::info!("analyzing '{mcap_name}'");
         let mapped_mcap = misc::map_mcap(&mcap_name)?;
@@ -109,6 +119,8 @@ fn main() -> Result<(), anyhow::Error> {
             text
         }
 
+        let mut topic_stats_for_toml = Vec::new();
+
         for topic_name in topic_names {
             let topic_data = topic_datas.get(topic_name).unwrap();
             let gap_start = topic_data.first().unwrap().log_time - message_start_time;
@@ -118,7 +130,24 @@ fn main() -> Result<(), anyhow::Error> {
             if num < 2 {
                 println!("{topic_name} {num} message");
                 println!("    start gap: {gap_start:.3}, end gap: {gap_end:.3}");
+
+                // if only a few messages then will only compare to new mcaps based
+                // on presence of any messages at all, won't penalize them for the wrong rate
+                topic_stats_for_toml.push(TopicStats {
+                    name: topic_name.to_string(),
+                    rate: None,
+                });
             } else {
+                // can get rate from the summary as well
+                let rate = num as f64 / elapsed;
+                // TODO(lucasw) if only one message maybe need to set a different
+                // field, make that field and rate optional, if neither is present
+                // there will ?
+                topic_stats_for_toml.push(TopicStats {
+                    name: topic_name.to_string(),
+                    rate: Some(rate),
+                });
+
                 {
                     let mut dts = nalgebra::DVector::zeros(num - 1);
                     let mut dts_sorted = Vec::new(); // with_capacity(num - 1);
@@ -145,9 +174,6 @@ fn main() -> Result<(), anyhow::Error> {
                     let longest_gap_ind = *sort_indices.last().unwrap();
                     let longest_gap = dts_sorted[longest_gap_ind];
 
-                    // TODO(lucasw) can know these values much earlier from the summary, but want to
-                    // immediately go into each and histogram of gaps between messages
-                    let rate = num as f64 / elapsed;
                     // TODO(lucasw) instead of printing, put all the stats into a struct for outputting
                     // into a toml file
                     println!("{topic_name}");
@@ -194,7 +220,16 @@ fn main() -> Result<(), anyhow::Error> {
                     }
                 }
             }
-        }
+        } // loop through all topics
+
+        let mut topic_stats_for_toml_wrapper = HashMap::new();
+        topic_stats_for_toml_wrapper.insert("topic_stats", topic_stats_for_toml);
+        let toml_text = toml::to_string(&topic_stats_for_toml_wrapper).unwrap();
+        println!("######{}#######", "#".repeat(mcap_name.len()));
+        println!("##### {mcap_name} ######");
+        println!("######{}#######", "#".repeat(mcap_name.len()));
+        println!();
+        println!("{toml_text}");
     }
 
     Ok(())

@@ -1,0 +1,29 @@
+[[topic_stats]]
+name = "/front/camera1/image/compressed"
+rate = 24.054588390791786
+
+[[topic_stats]]
+name = "/front/camera1/image/compressed/parameter_descriptions"
+
+[[topic_stats]]
+name = "/front/camera1/image/compressed/parameter_updates"
+
+[[topic_stats]]
+name = "/left/camera1/image/compressed"
+rate = 24.024632601446599
+
+[[topic_stats]]
+name = "/left/camera1/image/compressed/parameter_descriptions"
+
+[[topic_stats]]
+name = "/left/camera1/image/compressed/parameter_updates"
+
+[[topic_stats]]
+name = "/right/camera1/image/compressed"
+rate = 24.06956628546438
+
+[[topic_stats]]
+name = "/right/camera1/image/compressed/parameter_descriptions"
+
+[[topic_stats]]
+name = "/right/camera1/image/compressed/parameter_updates"
