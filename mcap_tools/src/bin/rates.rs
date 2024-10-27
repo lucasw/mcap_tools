@@ -12,6 +12,7 @@
 /// to disk)
 use clap::{arg, command};
 use mcap_tools::misc;
+// use ordered_float::NotNan;
 use simple_logger::SimpleLogger;
 use std::collections::HashMap;
 
@@ -37,16 +38,21 @@ fn main() -> Result<(), anyhow::Error> {
         log::info!("analyzing '{mcap_name}'");
         let mapped_mcap = misc::map_mcap(&mcap_name)?;
 
-        let mut topics_log_times = HashMap::new();
+        struct TopicData {
+            log_time: f64,
+            size: usize,
+        }
+
+        let mut topic_datas = HashMap::new();
 
         let summary = mcap::read::Summary::read(&mapped_mcap)?;
         // let summary = summary.ok_or(Err(anyhow::anyhow!("no summary")))?;
         let summary = summary.ok_or(anyhow::anyhow!("{mcap_name} no summary"))?;
 
         for channel in summary.channels.values() {
-            log::info!("{:?}", channel);
+            // log::info!("{:?}", channel);
 
-            topics_log_times.insert(channel.topic.clone(), Vec::new());
+            topic_datas.insert(channel.topic.clone(), Vec::new());
         }
 
         let stats = summary
@@ -58,17 +64,69 @@ fn main() -> Result<(), anyhow::Error> {
         let elapsed = message_end_time - message_start_time;
 
         for message in (mcap::MessageStream::new(&mapped_mcap)?).flatten() {
-            topics_log_times
+            let topic_data = TopicData {
+                log_time: message.log_time as f64 / 1e9,
+                size: message.data.len(),
+            };
+
+            topic_datas
                 .get_mut(&message.channel.topic)
                 .unwrap()
-                .push(message.log_time as f64 / 1e9);
+                .push(topic_data);
         }
 
-        for (topic_name, topic_log_times) in topics_log_times {
-            // TODO(lucasw) can know these values much earlier from the summary, but want to
-            // immediately go into each and histogram of gaps between messages
-            let rate = topic_log_times.len() as f64 / elapsed;
-            println!("{topic_name} {rate:.2}Hz");
+        let mut topic_names: Vec<&String> = topic_datas.keys().clone().collect();
+        topic_names.sort_unstable();
+
+        for topic_name in topic_names {
+            let topic_data = topic_datas.get(topic_name).unwrap();
+            let num = topic_data.len();
+            if num < 2 {
+                println!("{topic_name} {num} message");
+            } else {
+                let mut dts = nalgebra::DVector::zeros(num - 1);
+                let mut dts_sorted = Vec::new(); // with_capacity(num - 1);
+                dts_sorted.resize(num - 1, 0.0);
+                for i in 0..(num - 1) {
+                    let dt = topic_data[i + 1].log_time - topic_data[i].log_time;
+                    dts[i] = dt;
+                    dts_sorted[i] = dt;
+                }
+                dts_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+                let num_bins = 7;
+                let mut bins = Vec::with_capacity(num_bins); // new().resize(bins, 0.0);
+                for i in 0..num_bins {
+                    let ind = num * i / num_bins;
+                    bins.push(dts_sorted[ind]);
+                }
+                /*
+                let half_num = num / 2;
+                let median;
+                if num % 2 == 0 {
+                    median = (dts_sorted[half_num - 1] + dts_sorted[half_num]) / 2.0;
+                } else {
+                    median = dts_sorted[half_num];
+                }*/
+
+                let gap_start = topic_data.first().unwrap().log_time - message_start_time;
+                let gap_end = message_end_time - topic_data.last().unwrap().log_time;
+
+                // TODO(lucasw) can know these values much earlier from the summary, but want to
+                // immediately go into each and histogram of gaps between messages
+                let rate = num as f64 / elapsed;
+                // TODO(lucasw) instead of printing, put all the stats into a struct for outputting
+                // into a toml file
+                println!("{topic_name}");
+                println!("{rate:.2}Hz {num}");
+                println!("log time gap mean: {:.3}, std dev {:0.3}, min {:0.3}, max {:0.1}\n    start gap: {gap_start:.3}, end gap: {gap_end:.3}",
+                    dts.mean(), dts.variance().sqrt(), dts_sorted.first().unwrap(), dts_sorted.last().unwrap());
+                print!("    bins: ");
+                for bin in bins {
+                    print!("{bin:.3} ");
+                }
+                println!();
+            }
         }
     }
 
