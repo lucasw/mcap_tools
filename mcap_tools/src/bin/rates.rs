@@ -16,6 +16,8 @@ use mcap_tools::misc;
 use serde_derive::{Deserialize, Serialize};
 use simple_logger::SimpleLogger;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::prelude::*;
 
 fn get_sorted_indices<T: PartialOrd>(list: &Vec<T>) -> Vec<usize> {
     let mut indices = (0..list.len()).collect::<Vec<_>>();
@@ -57,11 +59,24 @@ fn main() -> Result<(), anyhow::Error> {
     let matches = command!()
         .arg(
             arg!(
+                -o --output <OUTPUT> "record channel/topic rates and types to this toml"
+            ), // .default_value("mcap_channel_rates.toml")
+        )
+        .arg(
+            arg!(
                 <mcaps> ... "mcaps to load"
             )
             .trailing_var_arg(true),
         )
         .get_matches_from(args);
+
+    let mut output_toml = None;
+    let output_toml_name = matches.get_one::<String>("output");
+    if let Some(output_toml_name) = output_toml_name {
+        log::info!("outputting rates to toml: {output_toml_name}");
+        output_toml = Some(File::create(output_toml_name)?);
+    }
+
     let mcap_names: Vec<_> = matches.get_many::<String>("mcaps").unwrap().collect();
     let mcap_names: Vec<String> = mcap_names.iter().map(|s| (**s).clone()).collect();
     log::info!("mcaps: {mcap_names:?}");
@@ -232,11 +247,22 @@ fn main() -> Result<(), anyhow::Error> {
         let mut topic_stats_for_toml_wrapper = HashMap::new();
         topic_stats_for_toml_wrapper.insert("topic_stats", topic_stats_for_toml);
         let toml_text = toml::to_string(&topic_stats_for_toml_wrapper).unwrap();
-        println!("######{}#######", "#".repeat(mcap_name.len()));
-        println!("##### {mcap_name} ######");
-        println!("######{}#######", "#".repeat(mcap_name.len()));
-        println!();
-        println!("{toml_text}");
+        match output_toml {
+            None => {
+                println!("######{}#######", "#".repeat(mcap_name.len()));
+                println!("##### {mcap_name} ######");
+                println!("######{}#######", "#".repeat(mcap_name.len()));
+                println!();
+                println!("{toml_text}");
+            }
+            Some(ref mut output_toml) => {
+                // TODO(lucasw) I think this will append if there are multiple mcaps,
+                // which isn't going to be correct if they have the same topics, need to commingle
+                // the results
+                log::info!("writiing to toml '{}'", output_toml_name.unwrap());
+                output_toml.write_all(toml_text.as_bytes())?;
+            }
+        }
     }
 
     Ok(())
