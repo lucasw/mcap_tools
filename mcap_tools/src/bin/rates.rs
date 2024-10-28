@@ -15,7 +15,7 @@ use mcap_tools::misc;
 // use ordered_float::NotNan;
 use serde_derive::{Deserialize, Serialize};
 use simple_logger::SimpleLogger;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::prelude::*;
 
@@ -55,12 +55,22 @@ fn main() -> Result<(), anyhow::Error> {
         .with_level(log::LevelFilter::Info)
         .init()?;
 
+    // TODO(lucasw) make into clap arg
+    let threshold = 0.1;
+    // lowest possible rate
+    let epsilon = 0.01;
+
     let args = std::env::args();
     let matches = command!()
         .arg(
             arg!(
+                -i --input <INPUT> "expected channel/topic rates in toml file, error if current mcap is too different"
+            ), // .default_value("expected_mcap_channel_rates.toml")
+        )
+        .arg(
+            arg!(
                 -o --output <OUTPUT> "record channel/topic rates and types to this toml"
-            ), // .default_value("mcap_channel_rates.toml")
+            ), // .default_value("observed_mcap_channel_rates.toml")
         )
         .arg(
             arg!(
@@ -69,6 +79,27 @@ fn main() -> Result<(), anyhow::Error> {
             .trailing_var_arg(true),
         )
         .get_matches_from(args);
+
+    let expected_stats: Option<HashMap<String, TopicStats>>;
+    let input_toml_name = matches.get_one::<String>("input");
+    if let Some(input_toml_name) = input_toml_name {
+        log::info!("getting expected rates from toml: {input_toml_name}");
+        let contents = match std::fs::read_to_string(input_toml_name) {
+            Ok(contents) => contents,
+            Err(err) => {
+                panic!("Could not read file '{input_toml_name}', {err}");
+            }
+        };
+        let mut rates_data: HashMap<String, Vec<TopicStats>> = toml::from_str(&contents)?;
+        let mut rates = HashMap::new();
+        let rates_vec = rates_data.remove("topic_stats").unwrap();
+        for rate in rates_vec {
+            rates.insert(rate.topic.clone(), rate);
+        }
+        expected_stats = Some(rates);
+    } else {
+        expected_stats = None;
+    }
 
     let mut output_toml = None;
     let output_toml_name = matches.get_one::<String>("output");
@@ -140,12 +171,33 @@ fn main() -> Result<(), anyhow::Error> {
 
         let mut topic_stats_for_toml = Vec::new();
 
+        // look for topics in expected that aren't in the observed
+        if let Some(ref expected_stats) = expected_stats {
+            // TODO(lucaw) one liner for this
+            let mut observed_topics = HashSet::<String>::new();
+            for topic_name in &topic_names {
+                observed_topics.insert((*topic_name).clone());
+            }
+
+            for (_expected_topic, expected_stat) in expected_stats.iter() {
+                let expected_topic: &str = &expected_stat.topic;
+                if !observed_topics.contains(expected_topic) {
+                    log::error!(
+                        "mcap is missing '{}' {}",
+                        expected_stat.topic,
+                        expected_stat.topic_type
+                    );
+                }
+            }
+        }
+
         for topic_name in topic_names {
             let topic_data = topic_datas.get(topic_name).unwrap();
             let topic_type = topic_types.get(topic_name).unwrap().to_string();
             let gap_start = topic_data.first().unwrap().log_time - message_start_time;
             let gap_end = message_end_time - topic_data.last().unwrap().log_time;
 
+            let rate;
             let num = topic_data.len();
             if num < 2 {
                 println!("{topic_name} {num} message");
@@ -153,22 +205,14 @@ fn main() -> Result<(), anyhow::Error> {
 
                 // if only a few messages then will only compare to new mcaps based
                 // on presence of any messages at all, won't penalize them for the wrong rate
-                topic_stats_for_toml.push(TopicStats {
-                    topic: topic_name.to_string(),
-                    topic_type,
-                    rate: None,
-                });
+                rate = None;
             } else {
                 // can get rate from the summary as well
-                let rate = num as f64 / elapsed;
+                let observed_rate = num as f64 / elapsed;
                 // TODO(lucasw) if only one message maybe need to set a different
                 // field, make that field and rate optional, if neither is present
                 // there will ?
-                topic_stats_for_toml.push(TopicStats {
-                    topic: topic_name.to_string(),
-                    topic_type,
-                    rate: Some(rate),
-                });
+                rate = Some(observed_rate);
 
                 {
                     let mut dts = nalgebra::DVector::zeros(num - 1);
@@ -198,8 +242,8 @@ fn main() -> Result<(), anyhow::Error> {
 
                     // TODO(lucasw) instead of printing, put all the stats into a struct for outputting
                     // into a toml file
-                    println!("{topic_name}");
-                    println!("    {rate:.2}Hz {num}");
+                    log::info!("{topic_name}");
+                    println!("    {observed_rate:.2}Hz {num}");
                     println!("    rx time gap mean: {:.3}, std dev {:0.3}, min {:0.3}, max {longest_gap:0.1}",
                         dts.mean(),
                         dts.variance().sqrt(),
@@ -241,7 +285,48 @@ fn main() -> Result<(), anyhow::Error> {
                         println!("    {smallest_sz}b (all)");
                     }
                 }
+
+                // compare rates if both are available
+                // if topic isn't in expected, note it here (already checked for
+                // if the expected topics aren't in the current mcap above)
+                if let Some(ref expected_stats) = expected_stats {
+                    let expected_stat = expected_stats.get(topic_name);
+                    if let Some(expected_stat) = expected_stat {
+                        if rate.is_some() && expected_stat.rate.is_some() {
+                            let observed_rate = rate.unwrap();
+                            let expected_rate = expected_stat.rate.unwrap();
+                            if observed_rate <= epsilon || expected_rate <= epsilon {
+                                log::error!("too small observed {observed_rate} or expected {expected_rate} < {epsilon}");
+                            } else {
+                                let ratio = observed_rate / expected_rate;
+                                if ratio > (1.0 + threshold) {
+                                    log::error!("ratio {ratio:.3} out of tolerance, observed {observed_rate} > {expected_rate} expected");
+                                } else if ratio < (1.0 - threshold) {
+                                    log::error!("ratio {ratio:.3} out of tolerance, observed {observed_rate} < {expected_rate} expected");
+                                } else if ratio == 1.0 {
+                                    log::warn!("ratio {ratio} is exactly 1.0 {observed_rate} == {expected_rate}");
+                                } else {
+                                    log::info!("ratio {ratio:.3} in tolerance ({threshold})");
+                                }
+                            }
+                        } else {
+                            log::error!(
+                                "rate mismatch observed: {:?} vs. expected: {:?}",
+                                rate,
+                                expected_stat.rate
+                            );
+                        }
+                    } else {
+                        log::error!("unexpected observed topic '{}' {}", topic_name, topic_type);
+                    }
+                }
             }
+
+            topic_stats_for_toml.push(TopicStats {
+                topic: topic_name.to_string(),
+                topic_type,
+                rate,
+            });
         } // loop through all topics
 
         let mut topic_stats_for_toml_wrapper = HashMap::new();
@@ -249,11 +334,13 @@ fn main() -> Result<(), anyhow::Error> {
         let toml_text = toml::to_string(&topic_stats_for_toml_wrapper).unwrap();
         match output_toml {
             None => {
+                /*
                 println!("######{}#######", "#".repeat(mcap_name.len()));
                 println!("##### {mcap_name} ######");
                 println!("######{}#######", "#".repeat(mcap_name.len()));
                 println!();
                 println!("{toml_text}");
+                */
             }
             Some(ref mut output_toml) => {
                 // TODO(lucasw) I think this will append if there are multiple mcaps,
