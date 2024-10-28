@@ -43,7 +43,8 @@ fn get_bins<T: Copy>(vals: &Vec<T>, sort_indices: &Vec<usize>, num_bins: usize) 
 // for reading/writing tomls
 #[derive(Deserialize, Serialize, Debug)]
 struct TopicStats {
-    name: String,
+    topic: String,
+    topic_type: String,
     rate: Option<f64>,
 }
 
@@ -76,7 +77,9 @@ fn main() -> Result<(), anyhow::Error> {
             size: usize,
         }
 
+        // TODO(lucasw) combine data structures
         let mut topic_datas = HashMap::new();
+        let mut topic_types = HashMap::new();
 
         let summary = mcap::read::Summary::read(&mapped_mcap)?;
         // let summary = summary.ok_or(Err(anyhow::anyhow!("no summary")))?;
@@ -84,8 +87,9 @@ fn main() -> Result<(), anyhow::Error> {
 
         for channel in summary.channels.values() {
             // log::info!("{:?}", channel);
-
             topic_datas.insert(channel.topic.clone(), Vec::new());
+            let topic_type = channel.schema.clone().unwrap().name.clone();
+            topic_types.insert(channel.topic.clone(), topic_type);
         }
 
         let stats = summary
@@ -123,6 +127,7 @@ fn main() -> Result<(), anyhow::Error> {
 
         for topic_name in topic_names {
             let topic_data = topic_datas.get(topic_name).unwrap();
+            let topic_type = topic_types.get(topic_name).unwrap().to_string();
             let gap_start = topic_data.first().unwrap().log_time - message_start_time;
             let gap_end = message_end_time - topic_data.last().unwrap().log_time;
 
@@ -134,7 +139,8 @@ fn main() -> Result<(), anyhow::Error> {
                 // if only a few messages then will only compare to new mcaps based
                 // on presence of any messages at all, won't penalize them for the wrong rate
                 topic_stats_for_toml.push(TopicStats {
-                    name: topic_name.to_string(),
+                    topic: topic_name.to_string(),
+                    topic_type,
                     rate: None,
                 });
             } else {
@@ -144,7 +150,8 @@ fn main() -> Result<(), anyhow::Error> {
                 // field, make that field and rate optional, if neither is present
                 // there will ?
                 topic_stats_for_toml.push(TopicStats {
-                    name: topic_name.to_string(),
+                    topic: topic_name.to_string(),
+                    topic_type,
                     rate: Some(rate),
                 });
 
