@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use camino::Utf8Path;
 use memmap::Mmap;
 use roslibrust::ros1::{determine_addr, MasterClient, NodeServerHandle, XmlRpcServer};
+use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tracing;
@@ -118,4 +119,46 @@ pub fn get_message_data_with_header(raw_message_data: std::borrow::Cow<'_, [u8]>
     let mut message_data = Vec::from(raw_message_data);
     msg_with_header.append(&mut message_data);
     msg_with_header
+}
+
+// for reading/writing tomls
+#[derive(Deserialize, Serialize, Debug)]
+pub struct TopicStats {
+    pub topic: String,
+    pub topic_type: String,
+    pub rate: Option<f64>,
+}
+
+// TODO(lucasw) maybe should just use anyhow::Error, can't use the question mark with this
+#[derive(Debug, thiserror::Error)]
+pub enum ReadTomlFileError {
+    #[error("couldn't read file")]
+    Read(std::io::Error),
+    #[error("couldn't parse toml")]
+    Toml(toml::de::Error),
+}
+
+pub fn get_expected_rates_from_toml(
+    input_toml_name: &String,
+) -> Result<HashMap<String, TopicStats>, ReadTomlFileError> {
+    // let contents = std::fs::read_to_string(input_toml_name)?;
+    let contents = match std::fs::read_to_string(input_toml_name) {
+        Ok(contents) => contents,
+        Err(err) => {
+            return Err(ReadTomlFileError::Read(err));
+            // panic!("Could not read file '{input_toml_name}', {err}");
+        }
+    };
+    let mut rates_data: HashMap<String, Vec<TopicStats>> = match toml::from_str(&contents) {
+        Ok(rates_data) => rates_data,
+        Err(err) => {
+            return Err(ReadTomlFileError::Toml(err));
+        }
+    };
+    let mut rates = HashMap::new();
+    let rates_vec = rates_data.remove("topic_stats").unwrap();
+    for rate in rates_vec {
+        rates.insert(rate.topic.clone(), rate);
+    }
+    Ok(rates)
 }

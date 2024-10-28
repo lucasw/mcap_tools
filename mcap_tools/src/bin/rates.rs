@@ -12,8 +12,8 @@
 /// to disk)
 use clap::{arg, command};
 use mcap_tools::misc;
+use mcap_tools::misc::TopicStats;
 // use ordered_float::NotNan;
-use serde_derive::{Deserialize, Serialize};
 use simple_logger::SimpleLogger;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -42,17 +42,11 @@ fn get_bins<T: Copy>(vals: &Vec<T>, sort_indices: &Vec<usize>, num_bins: usize) 
     bins
 }
 
-// for reading/writing tomls
-#[derive(Deserialize, Serialize, Debug)]
-struct TopicStats {
-    topic: String,
-    topic_type: String,
-    rate: Option<f64>,
-}
-
 fn main() -> Result<(), anyhow::Error> {
     SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
+        .without_timestamps() // reduce clutter, timestamps don't matter too much unless this is
+        // really slow
         .init()?;
 
     // TODO(lucasw) make into clap arg
@@ -84,19 +78,7 @@ fn main() -> Result<(), anyhow::Error> {
     let input_toml_name = matches.get_one::<String>("input");
     if let Some(input_toml_name) = input_toml_name {
         log::info!("getting expected rates from toml: {input_toml_name}");
-        let contents = match std::fs::read_to_string(input_toml_name) {
-            Ok(contents) => contents,
-            Err(err) => {
-                panic!("Could not read file '{input_toml_name}', {err}");
-            }
-        };
-        let mut rates_data: HashMap<String, Vec<TopicStats>> = toml::from_str(&contents)?;
-        let mut rates = HashMap::new();
-        let rates_vec = rates_data.remove("topic_stats").unwrap();
-        for rate in rates_vec {
-            rates.insert(rate.topic.clone(), rate);
-        }
-        expected_stats = Some(rates);
+        expected_stats = Some(misc::get_expected_rates_from_toml(input_toml_name)?);
     } else {
         expected_stats = None;
     }
