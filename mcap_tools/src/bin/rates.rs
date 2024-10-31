@@ -68,6 +68,13 @@ fn main() -> Result<(), anyhow::Error> {
         )
         .arg(
             arg!(
+                -r --round <ROUND> "round rates to this number of digits after the decimal"
+            )
+            .value_parser(clap::value_parser!(usize))
+            .required(false)
+        )
+        .arg(
+            arg!(
                 <mcaps> ... "mcaps to load"
             )
             .trailing_var_arg(true),
@@ -93,6 +100,9 @@ fn main() -> Result<(), anyhow::Error> {
     let mcap_names: Vec<_> = matches.get_many::<String>("mcaps").unwrap().collect();
     let mcap_names: Vec<String> = mcap_names.iter().map(|s| (**s).clone()).collect();
     log::info!("mcaps: {mcap_names:?}");
+
+    let round_digits = matches.get_one::<usize>("round");
+    log::info!("rounding digits: {round_digits:?}");
 
     // TODO(lucasw) not yet sure how multiple mcaps are supposed to be handled-
     // commingle them all together?  Should duplicate messages be identified and deduplicated?
@@ -190,10 +200,19 @@ fn main() -> Result<(), anyhow::Error> {
                 rate = None;
             } else {
                 // can get rate from the summary as well
-                let observed_rate = num as f64 / elapsed;
+                let mut observed_rate = num as f64 / elapsed;
                 // TODO(lucasw) if only one message maybe need to set a different
                 // field, make that field and rate optional, if neither is present
                 // there will ?
+                if let Some(round_digits) = round_digits {
+                    observed_rate = format!(
+                        "{observed_rate:.round_digits$}",
+                        round_digits = round_digits
+                    )
+                    .parse()
+                    .unwrap();
+                }
+
                 rate = Some(observed_rate);
 
                 {
