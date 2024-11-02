@@ -1,12 +1,12 @@
 [package]
 name = "mcap_tools"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.86"
+anyhow = "1.0.92"
 camino = "1.1.7"
 chrono = "0.4.38"
 clap = { version = "4.5.16", features = ["cargo"] }
@@ -49,6 +49,9 @@ git = "https://github.com/lucasw/roslibrust"
 branch = "get_rx_msg_def"
 # path = "../../roslibrust/roslibrust_codegen_macro"
 # version="0.10"
+
+[dependencies.roslibrust_util]
+git = "https://github.com/lucasw/tf_roslibrust"
 
 [[bin]]
 name = "rostopic_list"

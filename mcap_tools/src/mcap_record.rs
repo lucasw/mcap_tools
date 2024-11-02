@@ -1,7 +1,6 @@
 /// get a list of ros topics from the master, optionally loop and show new topics that appear
 /// or note old topics that have gone away
 use clap::{arg, command};
-use mcap_tools::misc;
 use regex::Regex;
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -13,7 +12,7 @@ use std::time::SystemTime;
 use std::{collections::BTreeMap, fs, io::BufWriter};
 use tokio::time::Duration;
 
-use crate::misc::std_srvs;
+use roslibrust_util::std_srvs;
 
 fn rename_active(mcap_name: &str) -> std::io::Result<()> {
     // TODO(lucasw) only replace last occurence
@@ -367,7 +366,8 @@ async fn main() -> Result<(), anyhow::Error> {
     params.insert("_name".to_string(), "mcap_record".to_string());
     // TODO(lucasw) parse := ros arguments with clap?
     let mut _remaps = HashMap::<String, String>::new();
-    let (ns, full_node_name, unused_args) = misc::get_params_remaps(&mut params, &mut _remaps);
+    let (ns, full_node_name, unused_args) =
+        roslibrust_util::get_params_remaps(&mut params, &mut _remaps);
 
     let matches = command!()
         .arg(
@@ -429,7 +429,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .to_owned()
         + &time_str;
 
-    let master_client = misc::get_master_client(&full_node_name).await?;
+    let master_client = roslibrust_util::get_master_client(&full_node_name).await?;
     let mut nh = {
         let master_uri =
             std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());

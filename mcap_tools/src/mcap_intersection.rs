@@ -1,6 +1,5 @@
 /// Copyright 2024 Lucas Walter
 /// given two mcap files, find the messages that are unique to each and output them into new mcaps
-use mcap_tools::misc;
 use std::collections::HashSet;
 
 /// return a HashSet of tuples of topic_name, topic_type, and timestamp
@@ -10,7 +9,7 @@ use std::collections::HashSet;
 /// --clock (should fix that with mcap_play, if a sim clock parameter is set set the publish time
 /// to the stored publish time and make sure the mcap_record uses the same value
 async fn mcap_to_hashset(mcap_name: &str) -> Result<HashSet<(String, String, u64)>, anyhow::Error> {
-    let mapped = misc::map_mcap(mcap_name)?;
+    let mapped = roslibrust_util::map_mcap(mcap_name)?;
 
     let mut msg_hash = HashSet::new();
 

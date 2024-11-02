@@ -11,8 +11,7 @@
 /// (e.g. plotjuggler, maybe rerun, or make tools to make plots in egui, or save images of graphs
 /// to disk)
 use clap::{arg, command};
-use mcap_tools::misc;
-use mcap_tools::misc::TopicStats;
+use roslibrust_util::TopicStats;
 // use ordered_float::NotNan;
 use simple_logger::SimpleLogger;
 use std::collections::{HashMap, HashSet};
@@ -85,7 +84,9 @@ fn main() -> Result<(), anyhow::Error> {
     let input_toml_name = matches.get_one::<String>("input");
     if let Some(input_toml_name) = input_toml_name {
         log::info!("getting expected rates from toml: {input_toml_name}");
-        expected_stats = Some(misc::get_expected_rates_from_toml(input_toml_name)?);
+        expected_stats = Some(roslibrust_util::get_expected_rates_from_toml(
+            input_toml_name,
+        )?);
     } else {
         expected_stats = None;
     }
@@ -108,7 +109,7 @@ fn main() -> Result<(), anyhow::Error> {
     // commingle them all together?  Should duplicate messages be identified and deduplicated?
     for mcap_name in mcap_names {
         log::info!("analyzing '{mcap_name}'");
-        let mapped_mcap = misc::map_mcap(&mcap_name)?;
+        let mapped_mcap = roslibrust_util::map_mcap(&mcap_name)?;
 
         struct TopicData {
             log_time: f64,

@@ -4,7 +4,6 @@
 use std::{env, fs, path::PathBuf};
 
 use anyhow::Result;
-use mcap_tools::misc;
 
 use roslibrust_codegen_macro::find_and_generate_ros_messages;
 
@@ -25,7 +24,7 @@ fn ros_to_ns_string(ros_stamp: roslibrust_codegen::Time) -> f64 {
 fn mcap_extract(path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     dbg!(path);
 
-    let mapped = misc::map_mcap(path.display().to_string())?;
+    let mapped = roslibrust_util::map_mcap(path.display().to_string())?;
 
     // let mut count = 0;
     // let mut image_count = 0;
@@ -39,7 +38,8 @@ fn mcap_extract(path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
                         if schema.name == "sensor_msgs/CompressedImage" {
                             let topic = message.channel.topic.replace('/', "__");
                             // println!("{}", schema.name);
-                            let msg_with_header = misc::get_message_data_with_header(message.data);
+                            let msg_with_header =
+                                roslibrust_util::get_message_data_with_header(message.data);
                             match serde_rosmsg::from_slice::<sensor_msgs::CompressedImage>(
                                 &msg_with_header,
                             ) {

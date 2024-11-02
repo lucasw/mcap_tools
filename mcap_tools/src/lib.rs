@@ -1,12 +1,9 @@
 use memmap::Mmap;
 use regex::Regex;
 use roslibrust::ros1::PublisherAny;
+use roslibrust_util::tf2_msgs;
 use std::collections::HashMap;
 use tokio::sync::broadcast;
-
-use crate::misc::tf2_msgs;
-
-pub mod misc;
 
 fn use_topic(topic: &str, include_re: &Option<Regex>, exclude_re: &Option<Regex>) -> bool {
     // TODO(lucasw) topic_type matching would be useful as well
@@ -83,7 +80,7 @@ pub async fn mcap_playback_init(
                 if message.channel.topic != "/tf_static" {
                     continue;
                 }
-                let msg_with_header = misc::get_message_data_with_header(message.data);
+                let msg_with_header = roslibrust_util::get_message_data_with_header(message.data);
                 match serde_rosmsg::from_slice::<tf2_msgs::TFMessage>(&msg_with_header) {
                     Ok(tf_msg) => {
                         log::info!(
@@ -238,7 +235,8 @@ pub async fn play_one_mcap(
                         Some(publisher) => {
                             // All the messages are extracted in log_time order (or publish_time?
                             // They're the same here)
-                            let msg_with_header = misc::get_message_data_with_header(message.data);
+                            let msg_with_header =
+                                roslibrust_util::get_message_data_with_header(message.data);
                             let msg_time = message.log_time as f64 / 1e9;
                             if msg_time < msg_t0 {
                                 continue;

@@ -2,7 +2,6 @@
 /// or note old topics that have gone away
 use chrono::prelude::DateTime;
 use clap::{arg, command};
-use mcap_tools::misc;
 use regex::Regex;
 use std::collections::HashMap;
 use std::time::SystemTime;
@@ -18,7 +17,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 
-use crate::misc::{rosgraph_msgs, tf2_msgs};
+use roslibrust_util::{rosgraph_msgs, tf2_msgs};
 
 fn f64_secs_to_local_datetime(secs: f64) -> DateTime<chrono::prelude::Local> {
     let d = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs_f64(secs);
@@ -140,7 +139,8 @@ async fn main() -> Result<(), anyhow::Error> {
         let mut params = HashMap::<String, String>::new();
         params.insert("_name".to_string(), "mcap_play".to_string());
         let mut remaps = HashMap::<String, String>::new();
-        let (_ns, full_node_name, unused_args) = misc::get_params_remaps(&mut params, &mut remaps);
+        let (_ns, full_node_name, unused_args) =
+            roslibrust_util::get_params_remaps(&mut params, &mut remaps);
         (full_node_name, unused_args, remaps)
     };
 
@@ -171,7 +171,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 log::info!("{ind} opening '{mcap_name}' for playback with inner node {nh_name}");
                 // TODO(lucasw) create multiple node handles per thread didn't work, they didn't publish properly
                 // let nh = roslibrust::ros1::NodeHandle::new(&master_uri, &nh_name).await?;
-                let mapped = misc::map_mcap(mcap_name)?;
+                let mapped = roslibrust_util::map_mcap(mcap_name)?;
 
                 // initialize the start times and publishers
                 let rv = mcap_tools::mcap_playback_init(
