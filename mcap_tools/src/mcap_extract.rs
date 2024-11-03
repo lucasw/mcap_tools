@@ -1,13 +1,10 @@
 //! load mcaps and exports all compressed images to disk into directories derived from topics
 //! and filenames using the total nanoseconds of the timestamp
 
+use roslibrust_util::sensor_msgs;
 use std::{env, fs, path::PathBuf};
 
 use anyhow::Result;
-
-use roslibrust_codegen_macro::find_and_generate_ros_messages;
-
-find_and_generate_ros_messages!();
 
 /*
 fn print_type_of<T>(_: &T) -> String {
