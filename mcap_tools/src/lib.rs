@@ -11,6 +11,14 @@ pub fn get_sorted_indices<T: PartialOrd>(list: &Vec<T>) -> Vec<usize> {
     indices
 }
 
+pub fn bins_text<T: std::fmt::Debug>(bins: &Vec<T>) -> String {
+    let mut text = "".to_string();
+    for bin in bins {
+        text += &format!(" {bin:.3?}");
+    }
+    text
+}
+
 pub fn get_bins<T: Copy>(vals: &Vec<T>, sort_indices: &Vec<usize>, num_bins: usize) -> Vec<T> {
     // TODO(lucasw) can a fn have a same-size requirement for input vectors?
     // TODO(lucasw) return a Result and error on these

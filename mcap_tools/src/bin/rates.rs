@@ -11,7 +11,7 @@
 /// (e.g. plotjuggler, maybe rerun, or make tools to make plots in egui, or save images of graphs
 /// to disk)
 use clap::{arg, command};
-use mcap_tools::{get_bins, get_sorted_indices};
+use mcap_tools::{bins_text, get_bins, get_sorted_indices};
 use roslibrust_util::TopicStats;
 // use ordered_float::NotNan;
 use simple_logger::SimpleLogger;
@@ -131,14 +131,6 @@ fn main() -> Result<(), anyhow::Error> {
 
         let mut topic_names: Vec<&String> = topic_datas.keys().clone().collect();
         topic_names.sort_unstable();
-
-        fn bins_text<T: std::fmt::Debug>(bins: &Vec<T>) -> String {
-            let mut text = "".to_string();
-            for bin in bins {
-                text += &format!(" {bin:.3?}");
-            }
-            text
-        }
 
         let mut topic_stats_for_toml = Vec::new();
 
