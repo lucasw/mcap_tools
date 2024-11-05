@@ -5,6 +5,7 @@ use roslibrust_util::tf2_msgs;
 use std::collections::HashMap;
 use tokio::sync::broadcast;
 
+// duplicated in tf_roslibrust, use that one instead of this
 pub fn get_sorted_indices<T: PartialOrd>(list: &Vec<T>) -> Vec<usize> {
     let mut indices = (0..list.len()).collect::<Vec<_>>();
     indices.sort_by(|&a, &b| list[a].partial_cmp(&list[b]).unwrap());
