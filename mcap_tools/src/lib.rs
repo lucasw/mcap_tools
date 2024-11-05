@@ -5,6 +5,29 @@ use roslibrust_util::tf2_msgs;
 use std::collections::HashMap;
 use tokio::sync::broadcast;
 
+pub fn get_sorted_indices<T: PartialOrd>(list: &Vec<T>) -> Vec<usize> {
+    let mut indices = (0..list.len()).collect::<Vec<_>>();
+    indices.sort_by(|&a, &b| list[a].partial_cmp(&list[b]).unwrap());
+    indices
+}
+
+pub fn get_bins<T: Copy>(vals: &Vec<T>, sort_indices: &Vec<usize>, num_bins: usize) -> Vec<T> {
+    // TODO(lucasw) can a fn have a same-size requirement for input vectors?
+    // TODO(lucasw) return a Result and error on these
+    assert!(vals.len() == sort_indices.len());
+    assert!(!vals.is_empty());
+    let num = vals.len();
+    let mut bins = Vec::with_capacity(num_bins); // new().resize(bins, 0.0);
+    for i in 0..(num_bins + 1) {
+        let mut ind = num * i / num_bins;
+        if ind == vals.len() {
+            ind -= 1;
+        }
+        bins.push(vals[sort_indices[ind]]);
+    }
+    bins
+}
+
 fn use_topic(topic: &str, include_re: &Option<Regex>, exclude_re: &Option<Regex>) -> bool {
     // TODO(lucasw) topic_type matching would be useful as well
     if let Some(ref re) = include_re {

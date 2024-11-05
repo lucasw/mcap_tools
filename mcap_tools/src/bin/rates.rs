@@ -11,35 +11,13 @@
 /// (e.g. plotjuggler, maybe rerun, or make tools to make plots in egui, or save images of graphs
 /// to disk)
 use clap::{arg, command};
+use mcap_tools::{get_bins, get_sorted_indices};
 use roslibrust_util::TopicStats;
 // use ordered_float::NotNan;
 use simple_logger::SimpleLogger;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::prelude::*;
-
-fn get_sorted_indices<T: PartialOrd>(list: &Vec<T>) -> Vec<usize> {
-    let mut indices = (0..list.len()).collect::<Vec<_>>();
-    indices.sort_by(|&a, &b| list[a].partial_cmp(&list[b]).unwrap());
-    indices
-}
-
-fn get_bins<T: Copy>(vals: &Vec<T>, sort_indices: &Vec<usize>, num_bins: usize) -> Vec<T> {
-    // TODO(lucasw) can a fn have a same-size requirement for input vectors?
-    // TODO(lucasw) return a Result and error on these
-    assert!(vals.len() == sort_indices.len());
-    assert!(!vals.is_empty());
-    let num = vals.len();
-    let mut bins = Vec::with_capacity(num_bins); // new().resize(bins, 0.0);
-    for i in 0..(num_bins + 1) {
-        let mut ind = num * i / num_bins;
-        if ind == vals.len() {
-            ind -= 1;
-        }
-        bins.push(vals[sort_indices[ind]]);
-    }
-    bins
-}
 
 fn main() -> Result<(), anyhow::Error> {
     SimpleLogger::new()
