@@ -235,7 +235,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 let static_publisher = nh
                     .advertise::<tf2_msgs::TFMessage>(&tf_static_topic, 10, latching)
                     .await?;
-                static_publisher.publish(&tf_static_aggregated).await?;
+                static_publisher.publish(&tf_static_aggregated)?;
                 Some(static_publisher)
             } else {
                 None
@@ -310,11 +310,11 @@ async fn main() -> Result<(), anyhow::Error> {
                     if let Some(ref clock_publisher) = clock_publisher {
                         let clock_msg = rosgraph_msgs::Clock {
                             clock: roslibrust_codegen::Time {
-                                secs: clock_seconds as u32,
-                                nsecs: ((clock_seconds % 1.0) * 1e9_f64) as u32,
+                                secs: clock_seconds as i32,
+                                nsecs: ((clock_seconds % 1.0) * 1e9_f64) as i32,
                             },
                         };
-                        clock_publisher.publish(&clock_msg).await?;
+                        clock_publisher.publish(&clock_msg)?;
                     }
                 }
 

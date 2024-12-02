@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use tokio::sync::broadcast;
 
 // duplicated in tf_roslibrust, use that one instead of this
-pub fn get_sorted_indices<T: PartialOrd>(list: &Vec<T>) -> Vec<usize> {
+pub fn get_sorted_indices<T: PartialOrd>(list: &[T]) -> Vec<usize> {
     let mut indices = (0..list.len()).collect::<Vec<_>>();
     indices.sort_by(|&a, &b| list[a].partial_cmp(&list[b]).unwrap());
     indices
@@ -20,7 +20,7 @@ pub fn bins_text<T: std::fmt::Debug>(bins: &Vec<T>) -> String {
     text
 }
 
-pub fn get_bins<T: Copy>(vals: &Vec<T>, sort_indices: &Vec<usize>, num_bins: usize) -> Vec<T> {
+pub fn get_bins<T: Copy>(vals: &[T], sort_indices: &[usize], num_bins: usize) -> Vec<T> {
     // TODO(lucasw) can a fn have a same-size requirement for input vectors?
     // TODO(lucasw) return a Result and error on these
     assert!(vals.len() == sort_indices.len());
@@ -303,7 +303,7 @@ pub async fn play_one_mcap(
                             // having made it here, the message is in the time window to be able to publish
                             skipping = 0;
 
-                            let _ = publisher.publish(&msg_with_header).await;
+                            let _ = publisher.publish(&msg_with_header);
 
                             count += 1;
                             if count % 1000 == 0 {
