@@ -303,7 +303,7 @@ pub async fn play_one_mcap(
                             // having made it here, the message is in the time window to be able to publish
                             skipping = 0;
 
-                            let _ = publisher.publish(&msg_with_header);
+                            let _ = publisher.publish(&msg_with_header).await;
 
                             count += 1;
                             if count % 1000 == 0 {
