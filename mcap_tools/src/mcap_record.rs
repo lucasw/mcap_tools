@@ -2,14 +2,13 @@
 /// or note old topics that have gone away
 use clap::{arg, command};
 use regex::Regex;
-use std::borrow::Cow;
 use std::collections::HashSet;
 use std::collections::{hash_map, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use std::{collections::BTreeMap, fs, io::BufWriter};
+use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::Duration;
 
 use roslibrust_util::std_srvs;
@@ -24,55 +23,15 @@ fn rename_active(mcap_name: &str) -> std::io::Result<()> {
 // start all the threads
 async fn mcap_record(
     name_prefix_size: (String, String, u64),
-    channel_receiver: mpsc::Receiver<(String, String, String)>,
+    mut channel_receiver: Receiver<(String, String, String)>,
     connection_summaries: Arc<Mutex<HashMap<String, BTreeMap<String, String>>>>,
-    msg_receiver: mpsc::Receiver<(String, String, u64, u32, Vec<u8>)>,
+    mut msg_receiver: Receiver<(String, String, u64, u32, Vec<u8>)>,
     // finish: Arc<AtomicBool>,
     num_received_messages: Arc<AtomicUsize>,
 ) -> Result<(), anyhow::Error> {
     let (full_node_name, prefix, size_limit) = name_prefix_size;
 
-    // schemas should be able to persist across mcap file boundaries
-    let schemas = Arc::new(Mutex::new(HashMap::new()));
-
-    // a thread to listen on channel_receiver
-    {
-        let schemas = schemas.clone();
-        tokio::spawn(async move {
-            let mut count = 0;
-            loop {
-                let rv = channel_receiver.recv();
-                match rv {
-                    Ok(channel_data) => {
-                        let (_topic, topic_type, definition) = channel_data;
-                        // setup schema this topic
-                        if !schemas.lock().unwrap().contains_key(&topic_type.clone()) {
-                            let schema = mcap::Schema {
-                                name: topic_type.clone(),
-                                encoding: "ros1msg".to_string(),
-                                // TODO(lucasw) definition doesn't live long enough
-                                data: Cow::from(definition.as_bytes().to_owned()),
-                            };
-                            let schema = Some(Arc::new(schema.to_owned()));
-                            log::debug!("{count} new schema '{topic_type}'\n{schema:?}\n\n");
-                            schemas
-                                .lock()
-                                .unwrap()
-                                .insert(topic_type.to_owned().to_string(), schema);
-                            // log::warn!("can't get definition {topic} {topic_type}");
-                        }
-                        count += 1;
-                    } // make new schema
-                    Err(e) => {
-                        log::warn!("channel receiver finished with {e:?}, exiting");
-                        break;
-                    }
-                }
-            } // loop on new channels
-        });
-    }
-
-    // a thread to listen on msg_receiver
+    // a thread to listen on both channel_receiver & msg_receiver
     tokio::spawn(async move {
         // TODO(lucasw) put these into struct
         let mut mcap_sequence = 0;
@@ -81,10 +40,18 @@ async fn mcap_record(
         let mut mcap_out: Option<mcap::write::Writer<BufWriter<fs::File>>> = None;
 
         // these will need to be added to each new mcap
+        let mut schema_ids: HashMap<String, u16> = HashMap::new();
         let mut channel_ids: HashMap<(String, String), u16> = HashMap::new();
 
+        // Now schemas are per mcap file, clear this every rollover
+        let mut schemas: HashMap<String, String> = HashMap::new();
+
+        let mut channel_count = 0;
         let mut count = 0;
         loop {
+            // TODO(lucasw) make this whole thing a select! and do the file size check on an
+            // interval update?
+
             //if file size > some amount then make a new mcap
             if count % 10 == 0 {
                 // let file_handle_metadata = file_handle.unwrap_or_else(None).metadata();
@@ -122,6 +89,16 @@ async fn mcap_record(
                         */
 
                         channel_ids.clear();
+                        schema_ids.clear();
+                        // TODO(lucasw) add all the existing schemas
+                        for (topic_type, definition) in &schemas {
+                            let schema_id = mcap_out
+                                .as_mut()
+                                .unwrap()
+                                .add_schema(topic_type, "ros1msg", definition.as_bytes())
+                                .unwrap();
+                            schema_ids.insert(topic_type.clone(), schema_id);
+                        }
                     }
                     Err(e) => {
                         log::error!("{full_node_name} couldn't create '{mcap_name}' {e:?}");
@@ -130,102 +107,127 @@ async fn mcap_record(
                 }
             }
 
-            let rv = msg_receiver.recv(); // _timeout(Duration::from_millis(400));
-            match rv {
-                Ok(rv) => {
-                    let (topic, topic_type, arrival_ns_epoch, sequence, data): (
-                        String,
-                        String,
-                        u64,
-                        u32,
-                        Vec<u8>,
-                    ) = rv;
-
-                    // create channel id if it isn't in hash set for this mcap
-                    // have to create channels per mcap file, recreate them after a transition
-                    // to a new file
-                    let channel_key = (topic.clone(), topic_type.clone());
-                    let channel_id = match channel_ids.entry(channel_key) {
-                        hash_map::Entry::Occupied(occupied) => *occupied.get(), //.clone(),
-                        hash_map::Entry::Vacant(vacant) => {
-                            log::debug!("creating channel for {topic} {topic_type}");
-                            // the message could be received before the schema has been created
-                            // TODO(lucasw) replace with all in one block get-or-fail
-                            if !schemas.lock().unwrap().contains_key(&topic_type) {
-                                log::warn!("{full_node_name} no schema for '{topic_type}' yet, dropping message");
-                                continue;
+            tokio::select! {
+                rv = channel_receiver.recv() => {
+                    match rv {
+                        Some(channel_data) => {
+                            let (_topic, topic_type, definition) = channel_data;
+                            // setup schema this topic
+                            if !schemas.contains_key(&topic_type.clone()) {
+                                schemas.insert(topic_type.to_owned().to_string(), definition.clone());
+                                // log::warn!("can't get definition {topic} {topic_type}");
+                                // TODO(lucasw) duplicate code with clearing above
+                                let schema_id = mcap_out.as_mut().unwrap().add_schema(
+                                    &topic_type,
+                                    "ros1msg",
+                                    definition.as_bytes(),
+                                ).unwrap();
+                                log::debug!("new schema '{topic_type}'\n{schema_id:?}\n\n");
+                                schema_ids.insert(topic_type, schema_id);
                             }
+                        } // make new schema
+                        None => {
+                            log::warn!("channel receiver finished, exiting");
+                            break;
+                        }
+                    }
+                }
+                rv = msg_receiver.recv() => {
+                    match rv {
+                        Some(msg_data) => {
+                            let (topic, topic_type, arrival_ns_epoch, sequence, data): (
+                                String,
+                                String,
+                                u64,
+                                u32,
+                                Vec<u8>,
+                            ) = msg_data;
 
-                            let schema = schemas.lock().unwrap().get(&topic_type).unwrap().clone();
+                            // create channel id if it isn't in hash set for this mcap
+                            // have to create channels per mcap file, recreate them after a transition
+                            // to a new file
+                            let channel_key = (topic.clone(), topic_type.clone());
+                            let channel_id = match channel_ids.entry(channel_key) {
+                                hash_map::Entry::Occupied(occupied) => *occupied.get(), //.clone(),
+                                hash_map::Entry::Vacant(vacant) => {
+                                    log::debug!("creating channel for {topic} {topic_type}");
+                                    // the message could be received before the schema has been created
+                                    // TODO(lucasw) replace with all in one block get-or-fail
+                                    if !schemas.contains_key(&topic_type) {
+                                        log::warn!("{full_node_name} no schema for '{topic_type}' yet, dropping message");
+                                        continue;
+                                    }
 
-                            // TODO(lucasw) use Entry
-                            let connection_summary = {
-                                match connection_summaries.lock().unwrap().get(&topic) {
-                                    Some(connection_summary) => {
-                                        log_once::debug_once!("{full_node_name} '{topic}' have summary {connection_summary:?}");
-                                        connection_summary.clone()
-                                    }
-                                    None => {
-                                        log_once::warn_once!("{full_node_name} '{topic}' no connection summary for '{topic_type}' yet, leaving empty");
-                                        BTreeMap::<String, String>::default()
-                                    }
+                                    let schema_id = *schema_ids.get(&topic_type).unwrap();
+
+                                    // TODO(lucasw) use Entry
+                                    let connection_summary = {
+                                        match connection_summaries.lock().unwrap().get(&topic) {
+                                            Some(connection_summary) => {
+                                                log_once::debug_once!("{full_node_name} '{topic}' have summary {connection_summary:?}");
+                                                connection_summary.clone()
+                                            }
+                                            None => {
+                                                log_once::warn_once!("{full_node_name} '{topic}' no connection summary for '{topic_type}' yet, leaving empty");
+                                                BTreeMap::<String, String>::default()
+                                            }
+                                        }
+                                    };
+
+                                    // TODO(lucasw) need to create a BTreeMap and at least store the
+                                    // md5sum and topic (though that's redundant with the channel topic)
+                                    // in it to match what is in bags converted to mcap
+                                    // by `mcap convert`, and if latching and callerid are available
+                                    // put those in metadata also.
+
+                                    let channel_id = mcap_out.as_mut().unwrap().add_channel(
+                                        schema_id,
+                                        &topic,
+                                        "ros1",
+                                        &connection_summary,
+                                        ).unwrap();
+                                    channel_count += 1;
+                                    vacant.insert(channel_id);
+                                    log::debug!(
+                                        "{full_node_name} {channel_count} {topic} {topic_type} new channel {channel_id}"
+                                    );
+                                    channel_id
                                 }
                             };
 
-                            // TODO(lucasw) need to create a BTreeMap and at least store the
-                            // md5sum and topic (though that's redundant with the channel topic)
-                            // in it to match what is in bags converted to mcap
-                            // by `mcap convert`, and if latching and callerid are available
-                            // put those in metadata also.
-
-                            let channel = mcap::Channel {
-                                topic: topic.clone(),
-                                schema,
-                                message_encoding: "ros1".to_string(),
-                                metadata: connection_summary,
-                            };
-
-                            let channel_id =
-                                mcap_out.as_mut().unwrap().add_channel(&channel).unwrap();
-                            vacant.insert(channel_id);
-                            log::debug!(
-                                "{full_node_name} {topic} {topic_type} new channel {channel:?}"
-                            );
-                            channel_id
+                            mcap_out
+                                .as_mut()
+                                .unwrap()
+                                .write_to_known_channel(
+                                    &mcap::records::MessageHeader {
+                                        channel_id,
+                                        sequence,
+                                        log_time: arrival_ns_epoch,
+                                        // TODO(lucasw) get this from somewhere
+                                        publish_time: arrival_ns_epoch,
+                                    },
+                                    &data[4..], // chop off header bytes
+                                )
+                                .unwrap();
+                            if count % 2000 == 0 {
+                                log::debug!(
+                                    "{full_node_name} {count} written / {} received",
+                                    num_received_messages.load(Ordering::SeqCst)
+                                );
+                            }
+                            count += 1;
                         }
-                    };
-
-                    mcap_out
-                        .as_mut()
-                        .unwrap()
-                        .write_to_known_channel(
-                            &mcap::records::MessageHeader {
-                                channel_id,
-                                sequence,
-                                log_time: arrival_ns_epoch,
-                                // TODO(lucasw) get this from somewhere
-                                publish_time: arrival_ns_epoch,
-                            },
-                            &data[4..], // chop off header bytes
-                        )
-                        .unwrap();
-                    if count % 2000 == 0 {
-                        log::debug!(
-                            "{full_node_name} {count} written / {} received",
-                            num_received_messages.load(Ordering::SeqCst)
-                        );
-                    }
-                    count += 1;
-                }
-                Err(e) => {
-                    log::warn!(
-                        "{full_node_name} msg channel ended with {e:?}, finishing {mcap_name}"
-                    );
-                    mcap_out.unwrap().finish().unwrap();
-                    let _ = rename_active(&mcap_name);
-                    break;
-                }
-            }
+                        None => {
+                            log::warn!(
+                                "{full_node_name} msg channel ended, finishing {mcap_name}"
+                            );
+                            mcap_out.unwrap().finish().unwrap();
+                            let _ = rename_active(&mcap_name);
+                            break;
+                        }
+                    } // match on rv
+                } // select on msg_receiver
+            }; // end of select update
         } // loop
         log::info!("{full_node_name} {count} messages written");
     });
@@ -237,8 +239,8 @@ async fn subscribe_task(
     topic: String,
     topic_type: String,
     nh: &roslibrust::ros1::NodeHandle,
-    msg_sender: mpsc::Sender<(String, String, u64, u32, Vec<u8>)>,
-    channel_sender: mpsc::Sender<(String, String, String)>,
+    msg_sender: Sender<(String, String, u64, u32, Vec<u8>)>,
+    channel_sender: Sender<(String, String, String)>,
     num_received_messages: Arc<AtomicUsize>,
     connection_summaries: Arc<Mutex<HashMap<String, BTreeMap<String, String>>>>,
 ) -> Result<tokio::task::JoinHandle<()>, anyhow::Error> {
@@ -306,7 +308,7 @@ async fn subscribe_task(
                             .insert(topic.clone(), connection_summary);
 
                         let channel_data_inner = (topic.clone(), topic_type.clone(), definition);
-                        let send_rv = channel_sender.send(channel_data_inner.clone());
+                        let send_rv = channel_sender.send(channel_data_inner.clone()).await;
                         match send_rv {
                             Ok(()) => {
                                 channel_data = Some(());
@@ -321,13 +323,15 @@ async fn subscribe_task(
                         }
                     }
 
-                    let send_rv = msg_sender.send((
-                        topic.clone(),
-                        topic_type.clone(),
-                        arrival_ns_epoch,
-                        sequence,
-                        data,
-                    ));
+                    let send_rv = msg_sender
+                        .send((
+                            topic.clone(),
+                            topic_type.clone(),
+                            arrival_ns_epoch,
+                            sequence,
+                            data,
+                        ))
+                        .await;
                     match send_rv {
                         Ok(()) => {}
                         Err(e) => {
@@ -442,8 +446,8 @@ async fn main() -> Result<(), anyhow::Error> {
     // that does writing to mcap
     // let (channel_sender, channel_receiver) = mpsc::sync_channel(800);
     // let (msg_sender, msg_receiver) = mpsc::sync_channel(24000);
-    let (channel_sender, channel_receiver) = mpsc::channel();
-    let (msg_sender, msg_receiver) = mpsc::channel();
+    let (channel_sender, channel_receiver) = mpsc::channel(1000);
+    let (msg_sender, msg_receiver) = mpsc::channel(10000);
 
     let connection_summaries = Arc::new(Mutex::new(HashMap::new()));
 
