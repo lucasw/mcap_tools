@@ -10,8 +10,9 @@ import rospy
 argv = sys.argv[1:]
 
 # TODO(lucasw) if we don't want to send ros arguments to the application
-strip_ros_args = False
-if strip_ros_args:
+if len(argv) > 0 and argv[0] == "--strip-ros-args":
+    print("stripping ros arguments")
+    argv = argv[1:]
     argv = rospy.myargv(argv=argv)
 
 print(f"ARGS {argv}")
