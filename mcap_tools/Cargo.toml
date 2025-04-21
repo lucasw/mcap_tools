@@ -1,6 +1,6 @@
 [package]
 name = "mcap_tools"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,7 +15,7 @@ futures = "0.3.30"
 futures-timer = "3.0.3"
 log = "0.4.22"
 log-once = "0.4.1"
-mcap = "0.15.1"
+mcap = { version = "0.17.0", features = ["tokio"] }
 memmap = "0.7.0"
 nalgebra = "0.33.1"
 # ordered-float = "4.4.0"
