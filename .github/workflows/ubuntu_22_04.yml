@@ -72,6 +72,7 @@ jobs:
 
       - name:
         run: |
+          source devel/setup.bash
           # TODO(lucasw) build docs, and run tests
           cd src/mcap_tools/mcap_tools
           cargo install --path .
@@ -80,6 +81,5 @@ jobs:
           cd ../mcap_test_utils
           cargo install --path .
           # test_generate_messages --help
-          #
           ROS_HOME=`pwd` roslaunch mcap_record.test
           mcap_rates -i expected_rates.toml test*mcap
