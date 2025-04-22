@@ -336,7 +336,11 @@ async fn main() -> Result<(), anyhow::Error> {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         enable_raw_mode()?;
 
-        let (clock_tx, mut _clock_rx0) = broadcast::channel(50);
+        // want the queue small here, lagging and skipping old values is better than
+        // working with old values
+        let (clock_tx, mut _clock_rx0) = broadcast::channel(10);
+        // not going to use this, making a fresh rx for each mcap task
+        drop(_clock_rx0);
         for (mcap_name, mapped, pubs, msg_t0, _msg_t1) in play_data {
             // let msg_t_start = msg_t_start.clone();
             let clock_rx = clock_tx.subscribe();
@@ -440,7 +444,14 @@ async fn main() -> Result<(), anyhow::Error> {
         */
         disable_raw_mode()?;
 
-        log::info!("done");
+        // signal that clock is done
+        // TODO(lucasw) need to make this better- maybe a bool in the tuple?
+        let _ = clock_tx.send((0.0, 0.0));
+        log::info!(
+            "done, {} queued in sender, {} receivers",
+            clock_tx.len(),
+            clock_tx.receiver_count()
+        );
     }
 
     // clock_tx going out of scope should bring down every play_one_mcap task
