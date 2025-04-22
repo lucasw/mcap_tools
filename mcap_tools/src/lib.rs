@@ -185,11 +185,11 @@ async fn wait_for_playback_time(
     let mut lagged_count = 0;
     let mut last_clock_t = 0.0;
     loop {
-        // if the clock_tx goes out of scope this will return an error
-        let rv = clock_rx.recv().await;
-        match rv {
+        // if the clock_tx goes out of scope this should return RecvError::Closed
+        match clock_rx.recv().await {
             // get the current playback time and start of playback time
             Ok((clock_t, msg_t0)) => {
+                print!("-");
                 if lagged_count > 0 {
                     log::warn!("done being lagged {lagged_count}\r");
                     lagged_count = 0;
@@ -207,7 +207,7 @@ async fn wait_for_playback_time(
                         // if no time is provided, just wait for the start time
                         // give the playback time to be able to skip per msg_t0 messages
                         let margin_s = 2.0;
-                        if clock_t > msg_t0 - margin_s {
+                        if clock_t > (msg_t0 - margin_s) {
                             return Ok((clock_t, msg_t0));
                         }
                     }
@@ -219,12 +219,13 @@ async fn wait_for_playback_time(
                 }
             }
             Err(broadcast::error::RecvError::Lagged(num)) => {
-                if lagged_count == 0 {
+                if lagged_count % 20 == 0 {
                     log::warn!("lagged, need to catch up {num}\r");
                 }
                 lagged_count += 1;
             }
             Err(broadcast::error::RecvError::Closed) => {
+                log::warn!("channel is closed");
                 return Err(broadcast::error::RecvError::Closed);
             }
         }
@@ -247,12 +248,17 @@ pub async fn play_one_mcap(
         // may cause memory to be used unnecessarily (which will be a big issue if playing back 20
         // mcaps that go in sequence)
         // TODO(lucasw) maybe shouldn't even have the mapped handle yet, wait to open
+        // TODO(lucasw) this isn't erroring out properly when clock_tx is done
         let (mut clock_t, mut msg_t0) = wait_for_playback_time(&mut clock_rx, None).await?;
         log::info!(
             "{loop_count} {mcap_name}, clock {clock_t:.1}, msg t start {msg_t0:.1}, elapsed {:.1}\r", clock_t - msg_t0
         );
 
+        let mut last_msg_time = 0.0;
         let mut skipping = 0;
+        let mut backwards_count = 0;
+        // TODO(lucasw) refactor into a loop that get the next message and publisher from
+        // the message stream, then does the right thing with waiting or exiting after that
         for message_raw in mcap::MessageStream::new(mapped)? {
             match message_raw {
                 Ok(message) => {
@@ -267,12 +273,25 @@ pub async fn play_one_mcap(
                         Some(publisher) => {
                             // All the messages are extracted in log_time order (or publish_time?
                             // They're the same here)
-                            let msg_with_header =
-                                roslibrust_util::get_message_data_with_header(message.data);
                             let msg_time = message.log_time as f64 / 1e9;
                             if msg_time < msg_t0 {
+                                // this message is from before the first message we want to
+                                // publish, so skip it
                                 continue;
                             }
+                            if msg_time < last_msg_time {
+                                backwards_count += 1;
+                                let text = format!(
+                                    "msg time moving backwards {:.2}, {:.2}s, run mcap sort",
+                                    last_msg_time - msg_time,
+                                    msg_time - msg_t0
+                                );
+                                log::warn!("{}", text);
+                                return Err(anyhow::anyhow!(text));
+                            }
+                            last_msg_time = msg_time;
+                            let msg_with_header =
+                                roslibrust_util::get_message_data_with_header(message.data);
 
                             let elapsed = clock_t - msg_t0;
                             let threshold_s = 1.0;
@@ -281,7 +300,11 @@ pub async fn play_one_mcap(
                             // but if it's negative we're lagging some, a little is okay though
                             if -delta_s > threshold_s {
                                 if skipping == 0 {
-                                    log::warn!("{loop_count} {mcap_name} lagging {delta_s:.2}s, elapsed {elapsed:0.1}, skipping playback of this message {topic}, {count} already published\r");
+                                    let mut text =
+                                        format!("{loop_count} {mcap_name} lagging {delta_s:.2}s, ");
+                                    text += &format!("elapsed {elapsed:0.1}, skipping playback of this message {topic}, ");
+                                    text += &format!("{count} other messages already published, {skipping} skipped\r");
+                                    log::warn!("{}", text);
                                 }
                                 skipping += 1;
                                 continue;
@@ -294,6 +317,12 @@ pub async fn play_one_mcap(
                                 // differently in the looping caller
                                 let (new_clock_t, new_msg_t0) =
                                     wait_for_playback_time(&mut clock_rx, Some(msg_time)).await?;
+                                if new_clock_t == clock_t {
+                                    log::error!("time isn't advancing {clock_t} {new_clock_t}");
+                                } else if new_clock_t < clock_t {
+                                    log::error!("time moving backwards {clock_t} {new_clock_t}");
+                                    break;
+                                }
                                 clock_t = new_clock_t;
                                 // TODO(lucasw) there's no mechanism to alter msg_t0 yet, but this
                                 // supports it if one is added
@@ -318,7 +347,7 @@ pub async fn play_one_mcap(
             }
         } // loop through all messages
 
-        log::info!("{loop_count} {mcap_name} published {count} messages\r");
+        log::info!("{loop_count} {mcap_name} published {count} messages, {skipping} skipped\r");
         loop_count += 1;
     }
 
