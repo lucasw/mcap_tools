@@ -399,7 +399,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         &clock_publisher,
                     )
                     .await?;
-                    print!("|");
+                    // print!("|");
                 }
                 wall_t = new_wall_t;
 

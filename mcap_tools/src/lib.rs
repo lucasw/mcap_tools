@@ -214,7 +214,7 @@ async fn wait_for_playback_time(
                 if clock_t == 0.0 {
                     return Err(broadcast::error::RecvError::Closed);
                 }
-                print!("-");
+                // print!("-");
                 if lagged_count > 0 {
                     log::warn!("done being lagged {lagged_count}\r");
                     lagged_count = 0;
@@ -257,6 +257,41 @@ async fn wait_for_playback_time(
     }
 }
 
+fn get_next_message_tuple<'a, 'b>(
+    message_stream: &mut mcap::MessageStream<'a>,
+    pubs: &'b HashMap<String, PublisherAny>,
+) -> Result<Option<(&'b PublisherAny, String, mcap::Message<'a>)>, mcap::McapError> {
+    // get the next publisher and message pair
+    loop {
+        match message_stream.next() {
+            Some(message) => {
+                match message {
+                    Ok(message) => {
+                        let topic = &message.channel.topic;
+
+                        match pubs.get(topic) {
+                            None => {
+                                // probably excluded this topic
+                                continue;
+                            }
+                            Some(publisher) => {
+                                return Ok(Some((publisher, topic.to_string(), message)));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("error reading mcap {e:?}");
+                        return Err(e);
+                    }
+                }
+            }
+            None => {
+                return Ok(None);
+            }
+        }
+    }
+}
+
 pub async fn play_one_mcap(
     mcap_name: &str,
     mapped: &Mmap,
@@ -291,103 +326,112 @@ pub async fn play_one_mcap(
         // let mut backwards_count = 0;
         // TODO(lucasw) refactor into a loop that get the next message and publisher from
         // the message stream, then does the right thing with waiting or exiting after that
-        for message_raw in mcap::MessageStream::new(mapped)? {
-            match message_raw {
-                Ok(message) => {
-                    let topic = &message.channel.topic;
+        let mut message_stream = mcap::MessageStream::new(mapped)?;
 
-                    let rv = pubs.get(topic);
-                    match rv {
-                        None => {
-                            // probably excluded this topic
-                            continue;
-                        }
-                        Some(publisher) => {
-                            // All the messages are extracted in log_time order (or publish_time?
-                            // They're the same here)
-                            let msg_time = message.log_time as f64 / 1e9;
-                            if msg_time < msg_t0 {
-                                // this message is from before the first message we want to
-                                // publish, so skip it
-                                continue;
-                            }
-                            {
-                                // TODO(lucasw) make this configurable, ought to be slightly
-                                // more (?) than the amount that playback will tolerate for old
-                                // messages
-                                let time_sort_threshold = 0.4;
-                                if msg_time < (last_msg_time - time_sort_threshold) {
-                                    // backwards_count += 1;
-                                    let text = format!(
-                                        "msg time moving backwards {:.2}, {:.2}s, run mcap sort",
-                                        last_msg_time - msg_time,
-                                        msg_time - msg_t0
-                                    );
-                                    log::warn!("{}", text);
-                                    return Err(anyhow::anyhow!(text));
-                                }
-                            }
-                            last_msg_time = msg_time;
-                            let msg_with_header =
-                                roslibrust_util::get_message_data_with_header(message.data);
-
-                            let elapsed = clock_t - msg_t0;
-                            let threshold_s = 1.0;
-                            // expect this to be positive, with the first message in the future
-                            let delta_s = msg_time - clock_t;
-                            // but if it's negative we're lagging some, a little is okay though
-                            if -delta_s > threshold_s {
-                                if skipping == 0 {
-                                    let mut text =
-                                        format!("{loop_count} {mcap_name} lagging {delta_s:.2}s, ");
-                                    text += &format!("elapsed {elapsed:0.1}, skipping playback of this message {topic}, ");
-                                    text += &format!("{count} other messages already published, {skipping} skipped\r");
-                                    log::warn!("{}", text);
-                                }
-                                skipping += 1;
-                                continue;
-                            } else if delta_s > 0.0 {
-                                // clock_t < msg_time, normal case
-                                // don't want mcap looping to return an error here because this
-                                // convenient exits this entire function,
-                                // TODO(lucasw) though could make a single
-                                // pass through an mcap a dedicated function, then handle errors
-                                // differently in the looping caller
-                                let (new_clock_t, new_msg_t0) =
-                                    wait_for_playback_time(&mut clock_rx, Some(msg_time)).await?;
-                                if new_clock_t == clock_t {
-                                    log::error!("time isn't advancing {clock_t} {new_clock_t}");
-                                } else if new_clock_t < clock_t {
-                                    log::error!("time moving backwards {clock_t} {new_clock_t}");
-                                    break;
-                                }
-                                clock_t = new_clock_t;
-                                // TODO(lucasw) there's no mechanism to alter msg_t0 yet, but this
-                                // supports it if one is added
-                                msg_t0 = new_msg_t0;
-                            }
-
-                            // having made it here, the message is in the time window to be able to publish
-                            skipping = 0;
-
-                            let _ = publisher.publish(&msg_with_header).await;
-
-                            count += 1;
-                            if count % 1000 == 0 {
-                                log::debug!("{loop_count} {mcap_name} {count} {topic} publish\r");
-                            }
+        loop {
+            let (publisher, topic, message) = match get_next_message_tuple(
+                &mut message_stream,
+                pubs,
+            )? {
+                Some(values) => values,
+                None => {
+                    log::info!("{loop_count} done with messages in stream, published {count}, {skipping} skipped {mcap_name}\r");
+                    // TODO(lucasw) wait for signal to loop instead of breaking now
+                    loop {
+                        let (new_clock_t, _new_msg_t0) =
+                            wait_for_playback_time(&mut clock_rx, None).await?;
+                        // time needs to go backwards in order for loop to trigger
+                        if new_clock_t < clock_t {
+                            break;
                         }
                     }
+                    // the only other way to loop is below, where the clock goes backwards
+                    // even though there are still messages left
+                    loop_count += 1;
+                    break;
                 }
-                Err(e) => {
-                    log::warn!("{loop_count} {mcap_name} {:?}\r", e);
+            };
+
+            // All the messages are extracted in log_time order (or publish_time?
+            // They're the same here)
+            let msg_time = message.log_time as f64 / 1e9;
+            if msg_time < msg_t0 {
+                // this message is from before the first message we want to
+                // publish, so skip it
+                continue;
+            }
+
+            {
+                // TODO(lucasw) make this configurable, ought to be slightly
+                // more (?) than the amount that playback will tolerate for old
+                // messages
+                let time_sort_threshold = 0.4;
+                if msg_time < (last_msg_time - time_sort_threshold) {
+                    // backwards_count += 1;
+                    let text = format!(
+                        "msg time moving backwards {:.2}, {:.2}s, run mcap sort",
+                        last_msg_time - msg_time,
+                        msg_time - msg_t0
+                    );
+                    log::warn!("{}", text);
+                    return Err(anyhow::anyhow!(text));
                 }
             }
-        } // loop through all messages
+            last_msg_time = msg_time;
 
-        log::info!("{loop_count} {mcap_name} published {count} messages, {skipping} skipped\r");
-        loop_count += 1;
-    }
+            // convert to a publishable message (this doesn't deserialize)
+            let msg_with_header = roslibrust_util::get_message_data_with_header(message.data);
+
+            let elapsed = clock_t - msg_t0;
+            let threshold_s = 1.0;
+            // expect this to be positive, with the first message in the future
+            let delta_s = msg_time - clock_t;
+            // but if it's negative we're lagging some, a little is okay though
+            if -delta_s > threshold_s {
+                if skipping == 0 {
+                    let mut text = format!("{loop_count} {mcap_name} lagging {delta_s:.2}s, ");
+                    text += &format!(
+                        "elapsed {elapsed:0.1}, skipping playback of this message {topic}, "
+                    );
+                    text +=
+                        &format!("{count} other messages already published, {skipping} skipped\r");
+                    log::warn!("{}", text);
+                }
+                skipping += 1;
+                continue;
+            } else if delta_s > 0.0 {
+                // clock_t < msg_time, normal case
+                // don't want mcap looping to return an error here because this
+                // exits this entire function,
+                // TODO(lucasw) though could make a single
+                // pass through an mcap a dedicated function, then handle errors
+                // differently in the looping caller
+                let (new_clock_t, new_msg_t0) =
+                    wait_for_playback_time(&mut clock_rx, Some(msg_time)).await?;
+                if new_clock_t == clock_t {
+                    log::error!("time isn't advancing {clock_t} {new_clock_t}");
+                } else if new_clock_t < clock_t {
+                    log::error!("time moving backwards {clock_t} {new_clock_t}, looping");
+                    loop_count += 1;
+                    break;
+                }
+                clock_t = new_clock_t;
+                // TODO(lucasw) there's no mechanism to alter msg_t0 yet, but this
+                // supports it if one is added
+                msg_t0 = new_msg_t0;
+            }
+
+            // having made it here, the message is in the time window to be able to publish
+            skipping = 0;
+
+            let _ = publisher.publish(&msg_with_header).await;
+
+            count += 1;
+            if count % 1000 == 0 {
+                log::debug!("{loop_count} {mcap_name} {count} {topic} publish\r");
+            }
+        } // go through all messages message stream
+    } // restart the message stream after going through messages
 
     // There are multiple paths above to exit out, all via '?', but would rather they made it here
     // instead if it's the normal process of RecvError::Closed
