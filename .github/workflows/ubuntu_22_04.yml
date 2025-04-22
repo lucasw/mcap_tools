@@ -16,11 +16,11 @@ jobs:
       - name: git clone this
         uses: actions/checkout@v4
         with:
-          path: mcap_tools
+          path: src/mcap_tools
 
       - name: show source
         run: |
-          ls -l mcap_tools/mcap_tools
+          ls -l src/mcap_tools/mcap_tools
 
       - name: os version
         run: |
@@ -48,6 +48,7 @@ jobs:
           sudo apt install -yqq libtf2-msgs-dev python3-tf2-msgs ros-tf2-msgs
           sudo apt install -yqq libros-rosgraph-msgs-dev python3-rosgraph-msgs ros-rosgraph-msgs
           sudo apt install -yqq librust-openssl-dev
+          sudo apt install -yqq catkin python3-roslaunch
           rospack find geometry_msgs
           echo "ROS_PACKAGE_PATH=`rospack find actionlib_msgs`:`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find rosgraph_msgs`:`rospack find std_srvs`:`rospack find tf2_msgs`" > $GITHUB_ENV
 
@@ -55,18 +56,28 @@ jobs:
 
       - run: echo "PATH=$PATH:$HOME/.cargo/bin" >> $GITHUB_ENV
 
+      - name: build cmd_wrapper
+        run: |
+          catkin_make cmd_wrapper
+
       - run: |
-          cd mcap_tools/mcap_tools
+          cd src/mcap_tools/mcap_tools
           cargo fmt --check
 
       - run: |
-          cd mcap_tools/mcap_tools
+          cd src/mcap_tools/mcap_tools
           cargo clippy
 
       - name:
         run: |
           # TODO(lucasw) build docs, and run tests
-          cd mcap_tools/mcap_tools
+          cd src/mcap_tools/mcap_tools
           cargo install --path .
           mcap_record --version
           mcap_record --help
+          cd ../mcap_test_utils
+          cargo install --path .
+          # test_generate_messages --help
+          #
+          ROS_HOME=`pwd` roslaunch mcap_record.test
+          mcap_rates -i expected_rates.toml test*mcap

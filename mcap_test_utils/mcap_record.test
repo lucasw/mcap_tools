@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<launch>
+
+  <node name="mcap_record_test"
+    pkg="cmd_wrapper" type="cmd_wrapper.py"
+    args="mcap_record -o test"
+    output="screen" />
+
+  <!-- TODO(lucasw) delay the start of this -->
+  <node name="test_generate_messages"
+    pkg="cmd_wrapper" type="cmd_wrapper.py"
+    args="test_generate_messages"
+    required="true"
+    output="screen" />
+
+</launch>
