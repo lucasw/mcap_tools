@@ -11,9 +11,11 @@
 
   <buildtool_depend>catkin</buildtool_depend>
 
+  <!--
   <build_depend>roslint</build_depend>
 
   <exec_depend>roslint</exec_depend>
+  -->
 
 </package>
 
