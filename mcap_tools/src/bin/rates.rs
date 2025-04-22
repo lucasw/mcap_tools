@@ -26,6 +26,7 @@ fn main() -> Result<(), anyhow::Error> {
         // really slow
         .init()?;
 
+    let mut errors_observed = false;
     // TODO(lucasw) make into clap arg
     let threshold = 0.1;
     // lowest possible rate
@@ -145,6 +146,7 @@ fn main() -> Result<(), anyhow::Error> {
             for (_expected_topic, expected_stat) in expected_stats.iter() {
                 let expected_topic: &str = &expected_stat.topic;
                 if !observed_topics.contains(expected_topic) {
+                    errors_observed = true;
                     log::error!(
                         "mcap is missing '{}' {}",
                         expected_stat.topic,
@@ -268,12 +270,15 @@ fn main() -> Result<(), anyhow::Error> {
                             let observed_rate = rate.unwrap();
                             let expected_rate = expected_stat.rate.unwrap();
                             if observed_rate <= epsilon || expected_rate <= epsilon {
+                                errors_observed = true;
                                 log::error!("too small observed {observed_rate} or expected {expected_rate} < {epsilon}");
                             } else {
                                 let ratio = observed_rate / expected_rate;
                                 if ratio > (1.0 + threshold) {
+                                    errors_observed = true;
                                     log::error!("ratio {ratio:.3} out of tolerance, observed {observed_rate} > {expected_rate} expected");
                                 } else if ratio < (1.0 - threshold) {
+                                    errors_observed = true;
                                     log::error!("ratio {ratio:.3} out of tolerance, observed {observed_rate} < {expected_rate} expected");
                                 } else if ratio == 1.0 {
                                     log::warn!("ratio {ratio} is exactly 1.0 {observed_rate} == {expected_rate}");
@@ -282,6 +287,7 @@ fn main() -> Result<(), anyhow::Error> {
                                 }
                             }
                         } else {
+                            errors_observed = true;
                             log::error!(
                                 "rate mismatch observed: {:?} vs. expected: {:?}",
                                 rate,
@@ -289,6 +295,7 @@ fn main() -> Result<(), anyhow::Error> {
                             );
                         }
                     } else {
+                        errors_observed = true;
                         log::error!("unexpected observed topic '{}' {}", topic_name, topic_type);
                     }
                 }
@@ -324,5 +331,8 @@ fn main() -> Result<(), anyhow::Error> {
         }
     }
 
+    if errors_observed {
+        return Err(anyhow::anyhow!("errors observed"));
+    }
     Ok(())
 }
