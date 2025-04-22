@@ -58,7 +58,9 @@ jobs:
 
       - name: build cmd_wrapper
         run: |
-          catkin_make cmd_wrapper
+          ls -l
+          ls -l src/mcap_tools/cmd_wrapper
+          catkin_make
 
       - run: |
           cd src/mcap_tools/mcap_tools
