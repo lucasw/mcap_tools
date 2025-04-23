@@ -95,4 +95,5 @@ jobs:
           cd src/mcap_tools/mcap_test_utils
           # test_generate_messages --help
           ROS_HOME=`pwd` roslaunch mcap_record.test
+          ls -l
           mcap_rates -i expected_rates.toml test*mcap
