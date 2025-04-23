@@ -76,21 +76,23 @@ jobs:
 
       - name: build mcap_tools
         run: |
-          echo $ROS_PACKAGE_PATH
-          source devel/setup.bash
-          echo $ROS_PACKAGE_PATH
-          # TODO(lucasw) build docs, and run tests
+          # TODO(lucasw) build docs
           cd src/mcap_tools
-          cargo install --path .
+          cargo install --path mcap_tools
           mcap_record --version
           mcap_record --help
+
+      - name: build mcap_test_utils
+        run: |
+          # TODO(lucasw) build docs
+          cd src/mcap_tools
+          cargo install --path mcap_test_utils
           which test_generate_messages
 
       - name: run mcap_record test
         run: |
           source devel/setup.bash
           cd src/mcap_tools/mcap_test_utils
-          echo $ROS_PACKAGE_PATH
           # test_generate_messages --help
           ROS_HOME=`pwd` roslaunch mcap_record.test
           mcap_rates -i expected_rates.toml test*mcap
