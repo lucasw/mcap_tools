@@ -86,7 +86,9 @@ jobs:
 
       - name: build mcap_tools
         run: |
+          echo $ROS_PACKAGE_PATH
           source devel/setup.bash
+          echo $ROS_PACKAGE_PATH
           # TODO(lucasw) build docs, and run tests
           cd src/mcap_tools/mcap_tools
           cargo install --path .
@@ -97,6 +99,7 @@ jobs:
         run: |
           source devel/setup.bash
           cd src/mcap_tools/mcap_test_utils
+          echo $ROS_PACKAGE_PATH
           cargo install --path .
           # test_generate_messages --help
           ROS_HOME=`pwd` roslaunch mcap_record.test
