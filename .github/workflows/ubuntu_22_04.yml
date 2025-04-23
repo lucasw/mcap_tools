@@ -61,16 +61,30 @@ jobs:
           ls -l
           ls -l src/mcap_tools/cmd_wrapper
           catkin_make
+          source devel/setup.bash
+          rospack find cmd_wrapper
 
-      - run: |
+      - name: fmt mcap_tools
+        run: |
           cd src/mcap_tools/mcap_tools
           cargo fmt --check
 
-      - run: |
+      - name: fmt mcap_test_utils
+        run: |
+          cd src/mcap_tools/mcap_test_utils
+          cargo fmt --check
+
+      - name: clippy mcap_tools
+        run: |
           cd src/mcap_tools/mcap_tools
           cargo clippy
 
-      - name:
+      - name: clippy mcap_test_utils
+        run: |
+          cd src/mcap_tools/mcap_test_utils
+          cargo clippy
+
+      - name: build mcap_tools
         run: |
           source devel/setup.bash
           # TODO(lucasw) build docs, and run tests
@@ -78,7 +92,11 @@ jobs:
           cargo install --path .
           mcap_record --version
           mcap_record --help
-          cd ../mcap_test_utils
+
+      - name: build mcap_test_utils, run mcap_record test
+        run: |
+          source devel/setup.bash
+          cd src/mcap_tools/mcap_test_utils
           cargo install --path .
           # test_generate_messages --help
           ROS_HOME=`pwd` roslaunch mcap_record.test
