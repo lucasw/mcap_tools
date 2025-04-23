@@ -66,22 +66,12 @@ jobs:
 
       - name: fmt mcap_tools
         run: |
-          cd src/mcap_tools/mcap_tools
-          cargo fmt --check
-
-      - name: fmt mcap_test_utils
-        run: |
-          cd src/mcap_tools/mcap_test_utils
+          cd src/mcap_tools
           cargo fmt --check
 
       - name: clippy mcap_tools
         run: |
-          cd src/mcap_tools/mcap_tools
-          cargo clippy
-
-      - name: clippy mcap_test_utils
-        run: |
-          cd src/mcap_tools/mcap_test_utils
+          cd src/mcap_tools
           cargo clippy
 
       - name: build mcap_tools
@@ -90,17 +80,17 @@ jobs:
           source devel/setup.bash
           echo $ROS_PACKAGE_PATH
           # TODO(lucasw) build docs, and run tests
-          cd src/mcap_tools/mcap_tools
+          cd src/mcap_tools
           cargo install --path .
           mcap_record --version
           mcap_record --help
+          which test_generate_messages
 
-      - name: build mcap_test_utils, run mcap_record test
+      - name: run mcap_record test
         run: |
           source devel/setup.bash
           cd src/mcap_tools/mcap_test_utils
           echo $ROS_PACKAGE_PATH
-          cargo install --path .
           # test_generate_messages --help
           ROS_HOME=`pwd` roslaunch mcap_record.test
           mcap_rates -i expected_rates.toml test*mcap
