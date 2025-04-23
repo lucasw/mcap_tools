@@ -221,14 +221,17 @@ async fn mcap_record(
                             log::warn!(
                                 "{full_node_name} msg channel ended, finishing {mcap_name}"
                             );
-                            mcap_out.unwrap().finish().unwrap();
-                            let _ = rename_active(&mcap_name);
                             break;
                         }
                     } // match on rv
                 } // select on msg_receiver
             }; // end of select update
         } // loop
+
+        if mcap_out.is_some() {
+            mcap_out.unwrap().finish().unwrap();
+            let _ = rename_active(&mcap_name);
+        }
         log::info!("{full_node_name} {count} messages written");
     });
 
