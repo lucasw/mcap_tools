@@ -15,8 +15,8 @@ use roslibrust_util::std_srvs;
 
 fn rename_active(mcap_name: &str) -> std::io::Result<()> {
     // TODO(lucasw) only replace last occurence
-    log::debug!("removing .active from {mcap_name}");
     let inactive_name = mcap_name.replace(".mcap.active", ".mcap");
+    log::info!("removing .active from {mcap_name}");
     std::fs::rename(mcap_name, inactive_name)
 }
 
