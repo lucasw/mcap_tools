@@ -1,0 +1,19 @@
+[[topic_stats]]
+topic = "/image0"
+topic_type = "sensor_msgs/Image"
+rate = 20.0
+
+[[topic_stats]]
+topic = "/image1"
+topic_type = "sensor_msgs/Image"
+rate = 20.0
+
+[[topic_stats]]
+topic = "/image2"
+topic_type = "sensor_msgs/Image"
+rate = 20.0
+
+[[topic_stats]]
+topic = "/image3"
+topic_type = "sensor_msgs/Image"
+rate = 20.0

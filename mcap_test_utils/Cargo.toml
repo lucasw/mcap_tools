@@ -1,56 +1,33 @@
 [package]
-name = "mcap_tools"
+name = "mcap_test_utils"
 version = "0.5.0"
 edition = "2021"
 
 [dependencies]
-anyhow.workspace = true
+anyhow.workspace = true # "1.0.92"
 camino.workspace = true # "1.1.7"
 chrono.workspace = true # "0.4.38"
 clap.workspace = true # { version = "4.5.16", features = ["cargo"] }
-crossterm.workspace = true # { version = "0.28.1", features = ["event-stream"] }
 futures.workspace = true # "0.3.30"
 futures-timer.workspace = true # "3.0.3"
 log.workspace = true # "0.4.22"
 log-once.workspace = true # "0.4.1"
 mcap.workspace = true # { version = "0.17.0", features = ["tokio"] }
 memmap.workspace = true # "0.7.0"
-nalgebra.workspace = true # "0.33.1"
+regex.workspace = true # "1.10.6"
 roslibrust.workspace = true
 roslibrust_util.workspace = true
-regex.workspace = true # "1.10.6"
 serde.workspace = true # "1.0.213"
 serde_derive.workspace = true # "1.0.213"
 serde_rosmsg.workspace = true # "0.2.0"
 simple_logger.workspace = true # "5.0.0"
 thiserror.workspace = true # "1.0.65"
+tf_roslibrust.workspace = true
 tokio.workspace = true # "1.39.2"
 toml.workspace = true # "0.8.19"
-tf_roslibrust.workspace = true
 tracing.workspace = true # "0.1.40"
 tracing-subscriber.workspace = true # "0.3.18"
 
 [[bin]]
-name = "rostopic_list"
-path = "src/rostopic_list.rs"
-
-[[bin]]
-name = "mcap_extract"
-path = "src/mcap_extract.rs"
-
-[[bin]]
-name = "mcap_intersection"
-path = "src/mcap_intersection.rs"
-
-
-[[bin]]
-name = "mcap_play"
-path = "src/mcap_play.rs"
-
-[[bin]]
-name = "mcap_rates"
-path = "src/bin/rates.rs"
-
-[[bin]]
-name = "mcap_record"
-path = "src/mcap_record.rs"
+name = "test_generate_messages"
+path = "src/bin/generate_messages.rs"

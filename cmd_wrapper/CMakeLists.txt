@@ -1,13 +1,13 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.10)
 
 project(cmd_wrapper)
 
 find_package(catkin REQUIRED COMPONENTS
-  roslint
+  # roslint
 )
 
 set(ROSLINT_PYTHON_OPTS "--ignore=W503" "1>&2")
-roslint_python()
+# roslint_python()
 
 catkin_package()
 

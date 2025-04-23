@@ -126,6 +126,81 @@ fn get_non_ros_cli_args(unused_args: Vec<String>) -> Result<PlayArgs, anyhow::Er
     ))
 }
 
+async fn update_playback_clock(
+    clock_tx: &broadcast::Sender<(f64, f64)>,
+    playback_elapsed: f64,
+    msg_t_start: f64,
+    clock_publisher: &Option<roslibrust::ros1::Publisher<rosgraph_msgs::Clock>>,
+) -> Result<(), anyhow::Error> {
+    // the simulated clock current time
+    let clock_seconds = msg_t_start + playback_elapsed;
+    // send the time to every mcap playback task
+    clock_tx.send((clock_seconds, msg_t_start))?;
+
+    if let Some(ref clock_publisher) = clock_publisher {
+        let clock_msg = rosgraph_msgs::Clock {
+            clock: roslibrust::codegen::integral_types::Time {
+                secs: clock_seconds as i32,
+                nsecs: ((clock_seconds % 1.0) * 1e9_f64) as i32,
+            },
+        };
+        clock_publisher.publish(&clock_msg).await?;
+    }
+
+    Ok(())
+}
+
+async fn delay_and_update_terminal_events(
+    term_reader: &mut EventStream,
+    finish_playback: &mut bool,
+) -> (bool, bool) {
+    let mut delay = Delay::new(Duration::from_millis(10)).fuse();
+
+    let mut event = term_reader.next().fuse();
+
+    let mut toggle_pause = false;
+    let mut do_break = false;
+
+    select! {
+        _ = delay => {},
+        maybe_event = event => {
+            match maybe_event {
+                Some(Ok(event)) => {
+
+                    // spacebar
+                    if event == Event::Key(KeyCode::Char(' ').into()) {
+                        // broadcast a new msg_t0, wall_t0, and pause status
+                        // to the playing threads, and make it so no messages are lost
+                        // in the transition
+                        toggle_pause = true;
+                    }
+
+                    if event == Event::Key(KeyEvent::new(
+                            KeyCode::Char('c'),
+                            KeyModifiers::CONTROL,
+                    )
+                    ) {
+                        log::info!("ctrl-c, quitting\r");
+                        *finish_playback = true;
+                        do_break = true;
+                    }
+                    if event == Event::Key(KeyCode::Esc.into()) {
+                        log::info!("escape key, quitting\r");
+                        *finish_playback = true;
+                        do_break = true;
+                    }
+                }
+                Some(Err(e)) => println!("Error: {:?}\r", e),
+                None => {
+                    do_break = true;
+                }
+            }
+        }
+    };
+
+    (toggle_pause, do_break)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     // view log messages from roslibrust in stdout
@@ -157,6 +232,9 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut handles = Vec::new();
     {
         // TODO(lucasw) put this entire block in a function
+        // msg_t_start is the earliest timestamp to play out of all of the mcaps,
+        // it won't be before the earliest message but may be after them with offsets
+        // (in order to skip initial messages)
         let (msg_t_start, tf_static_aggregated, msg_t_end, play_data) = {
             let mut msg_t_start = f64::MAX;
             let mut msg_t_end: f64 = 0.0;
@@ -258,8 +336,11 @@ async fn main() -> Result<(), anyhow::Error> {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         enable_raw_mode()?;
 
-        // TODO(lucasw) also want to be able to pause playback
-        let (clock_tx, mut _clock_rx0) = broadcast::channel(20);
+        // want the queue small here, lagging and skipping old values is better than
+        // working with old values
+        let (clock_tx, mut _clock_rx0) = broadcast::channel(10);
+        // not going to use this, making a fresh rx for each mcap task
+        drop(_clock_rx0);
         for (mcap_name, mapped, pubs, msg_t0, _msg_t1) in play_data {
             // let msg_t_start = msg_t_start.clone();
             let clock_rx = clock_tx.subscribe();
@@ -271,6 +352,8 @@ async fn main() -> Result<(), anyhow::Error> {
                     f64_secs_to_local_datetime(msg_t0),
                 );
 
+                // TODO(lucasw) maybe each task should open the mcap from scratch, and only if
+                // it's about to be used
                 let _rv = mcap_tools::play_one_mcap(&mcap_name, &mapped, &pubs, clock_rx).await;
             });
             handles.push(handle);
@@ -282,12 +365,13 @@ async fn main() -> Result<(), anyhow::Error> {
         let mut finish_playback = false;
         let mut loop_count = 0;
         let mut paused = false;
+        // loop over playing back the mcaps start to finish over and over again
+        // reseting the sim time each loop
         loop {
-            // loop over all mcaps
             // how much time has elapsed of playback time, excluding any time spent paused
             let mut playback_elapsed = 0.0;
+            let mut wall_t = get_wall_time();
 
-            let mut wall_t0 = get_wall_time();
             let duration = msg_t_end - msg_t_start;
 
             // look for key presses during this playback iteration
@@ -295,76 +379,41 @@ async fn main() -> Result<(), anyhow::Error> {
 
             // TODO(lucasw) put this inside a function
             log::info!("starting clock\r");
+            // step through time within the set of mcaps
             loop {
                 // advance time within one playback cycle
-                let wall_t = get_wall_time();
+                let new_wall_t = get_wall_time();
                 if !paused {
-                    playback_elapsed = wall_t - wall_t0;
-                    if playback_elapsed > duration + 1.0 {
+                    // TODO(lucasw) optional playback speed modifier- keyboard adjust + command
+                    // line argument
+                    playback_elapsed += new_wall_t - wall_t;
+                    if playback_elapsed > (duration + 1.0) {
+                        log::info!("done with playback loop {playback_elapsed:.1} > {duration:.1}");
                         break;
                     }
 
-                    let clock_seconds = msg_t_start + playback_elapsed;
-                    clock_tx.send((clock_seconds, msg_t_start))?;
+                    update_playback_clock(
+                        &clock_tx,
+                        playback_elapsed,
+                        msg_t_start,
+                        &clock_publisher,
+                    )
+                    .await?;
+                    // print!("|");
+                }
+                wall_t = new_wall_t;
 
-                    if let Some(ref clock_publisher) = clock_publisher {
-                        let clock_msg = rosgraph_msgs::Clock {
-                            clock: roslibrust::codegen::integral_types::Time {
-                                secs: clock_seconds as i32,
-                                nsecs: ((clock_seconds % 1.0) * 1e9_f64) as i32,
-                            },
-                        };
-                        clock_publisher.publish(&clock_msg).await?;
-                    }
+                let (toggle_pause, do_break) =
+                    delay_and_update_terminal_events(&mut term_reader, &mut finish_playback).await;
+
+                if toggle_pause {
+                    paused = !paused;
+                    log::info!("paused: {paused}\r");
                 }
 
-                let mut delay = Delay::new(Duration::from_millis(10)).fuse();
-                let mut event = term_reader.next().fuse();
-
-                select! {
-                    _ = delay => {},
-                    maybe_event = event => {
-                        match maybe_event {
-                            Some(Ok(event)) => {
-
-                                // spacebar
-                                if event == Event::Key(KeyCode::Char(' ').into()) {
-                                    // broadcast a new msg_t0, wall_t0, and pause status
-                                    // to the playing threads, and make it so no messages are lost
-                                    // in the transition
-                                    paused = !paused;
-                                    if !paused {
-                                        // update wall_t0 to the value it would be had the pause
-                                        // never happened, future dated by a little
-                                        // to delay playback
-                                        // TODO(lucasw) maybe that is confusing and a better pause
-                                        // system is needed that doesn't require a fictional
-                                        // wall_t0
-                                        wall_t0 = wall_t - playback_elapsed + 1.0;
-                                    }
-                                    log::info!("paused: {paused}\r");
-                                }
-
-                                if event == Event::Key(KeyEvent::new(
-                                    KeyCode::Char('c'),
-                                    KeyModifiers::CONTROL,
-                                    )
-                                ) {
-                                    log::info!("ctrl-c, quitting\r");
-                                    finish_playback = true;
-                                    break;
-                                }
-                                if event == Event::Key(KeyCode::Esc.into()) {
-                                    log::info!("escape key, quitting\r");
-                                    finish_playback = true;
-                                    break;
-                                }
-                            }
-                            Some(Err(e)) => println!("Error: {:?}\r", e),
-                            None => break,
-                        }
-                    }
-                };
+                if do_break {
+                    break;
+                }
             }
 
             if finish_playback {
@@ -373,8 +422,10 @@ async fn main() -> Result<(), anyhow::Error> {
             }
 
             loop_count += 1;
+            log::info!("loop_count {loop_count}");
             if let Some(max_loops) = max_loops {
                 if max_loops > 0 && loop_count >= max_loops {
+                    log::info!("done after {loop_count} plays");
                     break;
                 }
             } else {
@@ -392,6 +443,15 @@ async fn main() -> Result<(), anyhow::Error> {
         }
         */
         disable_raw_mode()?;
+
+        // signal that clock is done
+        // TODO(lucasw) need to make this better- maybe a bool in the tuple?
+        let _ = clock_tx.send((0.0, 0.0));
+        log::info!(
+            "done, {} queued in sender, {} receivers",
+            clock_tx.len(),
+            clock_tx.receiver_count()
+        );
     }
 
     // clock_tx going out of scope should bring down every play_one_mcap task
