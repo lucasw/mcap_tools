@@ -160,7 +160,9 @@ pub async fn mcap_playback_init(
         // topic?  The easiest thing would be to save tf_static to a separate mcap in the
         // first place, more advanced would be for mcap_record to put all the statics
         // in a separate chunk but then 'mcap convert' wouldn't do that.
-        for message in (mcap::MessageStream::new(mapped)?).flatten() {
+        // for message in (mcap::MessageStream::new(mapped)?).flatten() {
+        for message in mcap::MessageStream::new(mapped)? {
+            let message = message?;
             if message.channel.topic != "/tf_static" {
                 continue;
             }
