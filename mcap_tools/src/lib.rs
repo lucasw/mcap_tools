@@ -84,7 +84,7 @@ pub async fn mcap_playback_init(
         msg_t1 - msg_t0
     );
 
-    let mut tf_static_aggregated = tf2_msgs::TFMessage::default();
+    let mut has_tf_static = false;
     let mut pubs = HashMap::new();
 
     for channel in summary.channels.values() {
@@ -104,32 +104,8 @@ pub async fn mcap_playback_init(
         // scan through them and only take the most recent, or build a hash map here
         if channel.topic == "/tf_static" {
             // && channel.schema.unwrap().name == "tf2_msgs/TFMessage" {
-            // TODO(lucasw) how to get through an mcap as quickly as possible to get a single
-            // topic?  The easiest thing would be to save tf_static to a separate mcap in the
-            // first place, more advanced would be for mcap_record to put all the statics
-            // in a separate chunk but then 'mcap convert' wouldn't do that.
-            for message in (mcap::MessageStream::new(mapped)?).flatten() {
-                if message.channel.topic != "/tf_static" {
-                    continue;
-                }
-                let msg_with_header = roslibrust_util::get_message_data_with_header(message.data);
-                match serde_rosmsg::from_slice::<tf2_msgs::TFMessage>(&msg_with_header) {
-                    Ok(tf_msg) => {
-                        log::info!(
-                            "{mcap_name} adding {} transforms to tf_static, total {}\r",
-                            tf_msg.transforms.len(),
-                            tf_msg.transforms.len() + tf_static_aggregated.transforms.len(),
-                        );
-                        for transform in tf_msg.transforms {
-                            tf_static_aggregated.transforms.push(transform);
-                        }
-                    }
-                    Err(err) => {
-                        log::error!("{mcap_name} {err:?}");
-                    }
-                }
-            }
-            continue;
+            has_tf_static = true;
+            log::info!("mcap has tf_static, going to aggregate");
         }
 
         if let Some(schema) = &channel.schema {
@@ -174,6 +150,37 @@ pub async fn mcap_playback_init(
             continue;
         }
     } // loop through channels
+
+    let mut tf_static_aggregated = tf2_msgs::TFMessage::default();
+    // TODO(lucasw) make this optional
+    if has_tf_static {
+        log::info!("aggregating tf_static");
+        // TODO(lucasw) how to get through an mcap as quickly as possible to get a single
+        // topic?  The easiest thing would be to save tf_static to a separate mcap in the
+        // first place, more advanced would be for mcap_record to put all the statics
+        // in a separate chunk but then 'mcap convert' wouldn't do that.
+        for message in (mcap::MessageStream::new(mapped)?).flatten() {
+            if message.channel.topic != "/tf_static" {
+                continue;
+            }
+            let msg_with_header = roslibrust_util::get_message_data_with_header(message.data);
+            match serde_rosmsg::from_slice::<tf2_msgs::TFMessage>(&msg_with_header) {
+                Ok(tf_msg) => {
+                    log::info!(
+                        "{mcap_name} adding {} transforms to tf_static, total {}\r",
+                        tf_msg.transforms.len(),
+                        tf_msg.transforms.len() + tf_static_aggregated.transforms.len(),
+                    );
+                    for transform in tf_msg.transforms {
+                        tf_static_aggregated.transforms.push(transform);
+                    }
+                }
+                Err(err) => {
+                    log::error!("{mcap_name} {err:?}");
+                }
+            }
+        }
+    }
 
     Ok((pubs, tf_static_aggregated, msg_t0, msg_t1))
 }
