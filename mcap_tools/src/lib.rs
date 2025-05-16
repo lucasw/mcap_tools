@@ -59,6 +59,7 @@ fn use_topic(topic: &str, include_re: &Option<Regex>, exclude_re: &Option<Regex>
 pub async fn mcap_playback_init(
     nh: &roslibrust::ros1::NodeHandle,
     mcap_name: &str,
+    aggregate_tf_static: bool,
     mapped: &Mmap,
     include_re: &Option<Regex>,
     exclude_re: &Option<Regex>,
@@ -153,7 +154,7 @@ pub async fn mcap_playback_init(
 
     let mut tf_static_aggregated = tf2_msgs::TFMessage::default();
     // TODO(lucasw) make this optional
-    if has_tf_static {
+    if aggregate_tf_static && has_tf_static {
         log::info!("aggregating tf_static");
         // TODO(lucasw) how to get through an mcap as quickly as possible to get a single
         // topic?  The easiest thing would be to save tf_static to a separate mcap in the
