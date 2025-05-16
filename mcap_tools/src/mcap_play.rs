@@ -36,6 +36,7 @@ fn get_wall_time() -> f64 {
 type PlayArgs = (
     Option<u64>,
     bool,
+    bool,
     (Option<Regex>, Option<Regex>),
     f64,
     Vec<String>,
@@ -53,6 +54,13 @@ fn get_non_ros_cli_args(unused_args: Vec<String>) -> Result<PlayArgs, anyhow::Er
         .arg(
             arg!(
                 -c --clock <CLOCK> "publish the clock time, most useful in combination with rosparam set /use_sim_time true"
+            )
+            .action(clap::ArgAction::SetTrue)
+            .required(false)
+        )
+        .arg(
+            arg!(
+                -tf --no_tf_static <TFSTATIC> "aggregate tf static messages for republishing in single message"
             )
             .action(clap::ArgAction::SetTrue)
             .required(false)
@@ -93,6 +101,9 @@ fn get_non_ros_cli_args(unused_args: Vec<String>) -> Result<PlayArgs, anyhow::Er
     let publish_clock = matches.get_one::<bool>("clock").copied().unwrap();
     log::info!("publishing clock");
 
+    let aggregate_tf_static = !matches.get_one::<bool>("no_tf_static").copied().unwrap();
+    log::info!("aggregating tf_static: {aggregate_tf_static}");
+
     let include_re;
     if let Some(regex_str) = matches.get_one::<String>("regex") {
         include_re = Some(Regex::new(regex_str)?);
@@ -120,6 +131,7 @@ fn get_non_ros_cli_args(unused_args: Vec<String>) -> Result<PlayArgs, anyhow::Er
     Ok((
         max_loops,
         publish_clock,
+        aggregate_tf_static,
         (include_re, exclude_re),
         start_secs_offset,
         mcap_names,
@@ -222,8 +234,14 @@ async fn main() -> Result<(), anyhow::Error> {
     let master_uri =
         std::env::var("ROS_MASTER_URI").unwrap_or("http://localhost:11311".to_string());
 
-    let (max_loops, publish_clock, (include_re, exclude_re), start_secs_offset, mcap_names) =
-        get_non_ros_cli_args(unused_args)?;
+    let (
+        max_loops,
+        publish_clock,
+        aggregate_tf_static,
+        (include_re, exclude_re),
+        start_secs_offset,
+        mcap_names,
+    ) = get_non_ros_cli_args(unused_args)?;
 
     // TODO(lucasw) if nh is shut down too abruptly by going out of scope it won't unregister all the publishers-
     // that needs to happen in the node handle drop just like with subscribers,
@@ -255,6 +273,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 let rv = mcap_tools::mcap_playback_init(
                     &nh,
                     mcap_name,
+                    aggregate_tf_static,
                     &mapped,
                     &include_re,
                     &exclude_re,
