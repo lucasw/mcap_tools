@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "mcap_test_utils",
-    "mcap_tools",
+    "mcap_tools", "mcap_view",
 ]
 
 [workspace.package]
