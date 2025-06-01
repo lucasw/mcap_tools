@@ -68,65 +68,67 @@ fn main() -> Result<()> {
     let mut viewers_by_topic: HashMap<String, (Window, usize, usize)> = HashMap::new();
 
     log::info!("iterating through messages");
-    for message in mcap::MessageStream::new(&mapped_mcap)? {
-        let message = message?;
-        // let schema = message.channel.schema.ok_or(anyhow::anyhow!("bad schema"))?.clone(); //.as_ref();
-        let schema_name = &message
-            .channel
-            .schema
-            .clone()
-            .ok_or(anyhow::anyhow!("bad schema"))?
-            .name;
-        if schema_name.ne("sensor_msgs/CompressedImage") {
-            continue;
-        }
-        let topic = &message.channel.topic;
-
-        let msg_with_header = roslibrust_util::get_message_data_with_header(message.data);
-        let msg = serde_rosmsg::from_slice::<CompressedImage>(&msg_with_header).unwrap();
-        let (rgb8, width, height) = compressed_image_to_bgr8(&msg.data)?;
-
-        let (window, width0, height0) =
-            viewers_by_topic.entry(topic.clone()).or_insert_with(|| {
-                log::info!(
-                    "visualizing {topic} {width}x{height} ({} bytes)",
-                    rgb8.len()
-                );
-                let window = Window::new(
-                    topic,
-                    width,
-                    height,
-                    WindowOptions {
-                        resize: true,
-                        scale: Scale::X1,
-                        scale_mode: ScaleMode::AspectRatioStretch,
-                        ..WindowOptions::default()
-                    },
-                )
-                .unwrap();
-                (window, width, height)
-            });
-        if width != *width0 || height != *height0 {
-            log::warn!("inconsistent image size topic width {width} was {width0}, height {height} was {height0}");
-            // continue;
-        }
-
-        let rgba32 = {
-            // TODO(lucasw) safe way to do this?
-            unsafe {
-                let (prefix, rgba32, suffix) = rgb8.align_to::<u32>();
-                if !prefix.is_empty() || !prefix.is_empty() {
-                    log::warn!(
-                        "{} u8 -> {prefix:?} {} {suffix:?}",
-                        rgb8.len(),
-                        rgba32.len()
-                    );
-                }
-                rgba32
+    loop {
+        for message in mcap::MessageStream::new(&mapped_mcap)? {
+            let message = message?;
+            // let schema = message.channel.schema.ok_or(anyhow::anyhow!("bad schema"))?.clone(); //.as_ref();
+            let schema_name = &message
+                .channel
+                .schema
+                .clone()
+                .ok_or(anyhow::anyhow!("bad schema"))?
+                .name;
+            if schema_name.ne("sensor_msgs/CompressedImage") {
+                continue;
             }
-        };
-        window.update_with_buffer(rgba32, width, height)?;
+            let topic = &message.channel.topic;
+
+            let msg_with_header = roslibrust_util::get_message_data_with_header(message.data);
+            let msg = serde_rosmsg::from_slice::<CompressedImage>(&msg_with_header).unwrap();
+            let (rgb8, width, height) = compressed_image_to_bgr8(&msg.data)?;
+
+            let (window, width0, height0) =
+                viewers_by_topic.entry(topic.clone()).or_insert_with(|| {
+                    log::info!(
+                        "visualizing {topic} {width}x{height} ({} bytes)",
+                        rgb8.len()
+                    );
+                    let window = Window::new(
+                        topic,
+                        width,
+                        height,
+                        WindowOptions {
+                            resize: true,
+                            scale: Scale::X1,
+                            scale_mode: ScaleMode::AspectRatioStretch,
+                            ..WindowOptions::default()
+                        },
+                    )
+                    .unwrap();
+                    (window, width, height)
+                });
+            if width != *width0 || height != *height0 {
+                log::warn!("inconsistent image size topic width {width} was {width0}, height {height} was {height0}");
+                // continue;
+            }
+
+            let rgba32 = {
+                // TODO(lucasw) safe way to do this?
+                unsafe {
+                    let (prefix, rgba32, suffix) = rgb8.align_to::<u32>();
+                    if !prefix.is_empty() || !prefix.is_empty() {
+                        log::warn!(
+                            "{} u8 -> {prefix:?} {} {suffix:?}",
+                            rgb8.len(),
+                            rgba32.len()
+                        );
+                    }
+                    rgba32
+                }
+            };
+            window.update_with_buffer(rgba32, width, height)?;
+        }
     }
 
-    Ok(())
+    // Ok(())
 }
