@@ -1,9 +1,34 @@
 use memmap::Mmap;
 use regex::Regex;
 use roslibrust::ros1::PublisherAny;
-use roslibrust_util::tf2_msgs;
+use roslibrust::RosMessageType;
+use roslibrust_util::{std_msgs::Header, tf2_msgs};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::BufWriter;
 use tokio::sync::broadcast;
+
+pub fn mcap_write<T: RosMessageType>(
+    mcap_out: &mut mcap::Writer<BufWriter<File>>,
+    msg: &T,
+    header: Header,
+    channel_id: u16,
+) -> Result<(), mcap::McapError> {
+    let sequence = 0;
+    let data = serde_rosmsg::to_vec(&msg).unwrap();
+    let log_time = tf_roslibrust::tf_util::stamp_to_duration(&header.stamp)
+        .num_nanoseconds()
+        .unwrap() as u64;
+    mcap_out.write_to_known_channel(
+        &mcap::records::MessageHeader {
+            channel_id,
+            sequence,
+            log_time,
+            publish_time: log_time,
+        },
+        &data[4..], // chop off header bytes
+    )
+}
 
 // duplicated in tf_roslibrust, use that one instead of this
 pub fn get_sorted_indices<T: PartialOrd>(list: &[T]) -> Vec<usize> {
