@@ -1935,7 +1935,7 @@ dependencies = [
 [[package]]
 name = "roslibrust_util"
 version = "0.2.0"
-source = "git+https://github.com/lucasw/tf_roslibrust#823aa1e8be59109cd3b6942afafead4bfac64643"
+source = "git+https://github.com/lucasw/tf_roslibrust#a46ab41537d034a2143480619f6802db30d9e6f9"
 dependencies = [
  "anyhow",
  "camino",
@@ -2444,7 +2444,7 @@ dependencies = [
 [[package]]
 name = "tf_roslibrust"
 version = "0.2.5"
-source = "git+https://github.com/lucasw/tf_roslibrust#823aa1e8be59109cd3b6942afafead4bfac64643"
+source = "git+https://github.com/lucasw/tf_roslibrust#a46ab41537d034a2143480619f6802db30d9e6f9"
 dependencies = [
  "anyhow",
  "chrono",
