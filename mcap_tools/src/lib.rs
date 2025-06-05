@@ -8,6 +8,33 @@ use std::fs::File;
 use std::io::BufWriter;
 use tokio::sync::broadcast;
 
+/*
+pub fn mcap_message_to_ros<T>(message: &mcap::Message) -> Result<Option<(T, &str)>, anyhow::Error> {
+    let message = message?;
+    let schema_name = &message
+        .channel
+        .schema
+        .clone()
+        .ok_or(anyhow::anyhow!("bad schema"))?
+        .name;
+    if schema_name.ne(T::ROS_TYPE_NAME) {
+        return None;
+    }
+    let topic = &message.channel.topic;
+
+    let msg_with_header = roslibrust_util::get_message_data_with_header(message.data);
+    let msg = serde_rosmsg::from_slice::<CompressedImage>(&msg_with_header).unwrap();
+    Some(msg, topic)
+}
+*/
+
+pub fn raw_message_to_ros<T: RosMessageType>(
+    data: std::borrow::Cow<'_, [u8]>,
+) -> Result<T, serde_rosmsg::Error> {
+    let msg_with_header = roslibrust_util::get_message_data_with_header(data);
+    serde_rosmsg::from_slice::<T>(&msg_with_header)
+}
+
 pub fn mcap_write<T: RosMessageType>(
     mcap_out: &mut mcap::Writer<BufWriter<File>>,
     msg: &T,
