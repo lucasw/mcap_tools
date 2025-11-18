@@ -1,9 +1,61 @@
 use memmap::Mmap;
 use regex::Regex;
 use roslibrust::ros1::PublisherAny;
-use roslibrust_util::tf2_msgs;
+use roslibrust::RosMessageType;
+use roslibrust_util::{std_msgs::Header, tf2_msgs};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::BufWriter;
 use tokio::sync::broadcast;
+
+/*
+pub fn mcap_message_to_ros<T>(message: &mcap::Message) -> Result<Option<(T, &str)>, anyhow::Error> {
+    let message = message?;
+    let schema_name = &message
+        .channel
+        .schema
+        .clone()
+        .ok_or(anyhow::anyhow!("bad schema"))?
+        .name;
+    if schema_name.ne(T::ROS_TYPE_NAME) {
+        return None;
+    }
+    let topic = &message.channel.topic;
+
+    let msg_with_header = roslibrust_util::get_message_data_with_header(message.data);
+    let msg = serde_rosmsg::from_slice::<CompressedImage>(&msg_with_header).unwrap();
+    Some(msg, topic)
+}
+*/
+
+pub fn raw_message_to_ros<T: RosMessageType>(
+    data: std::borrow::Cow<'_, [u8]>,
+) -> Result<T, serde_rosmsg::Error> {
+    let msg_with_header = roslibrust_util::get_message_data_with_header(data);
+    serde_rosmsg::from_slice::<T>(&msg_with_header)
+}
+
+pub fn mcap_write<T: RosMessageType>(
+    mcap_out: &mut mcap::Writer<BufWriter<File>>,
+    msg: &T,
+    header: Header,
+    channel_id: u16,
+) -> Result<(), mcap::McapError> {
+    let sequence = 0;
+    let data = serde_rosmsg::to_vec(&msg).unwrap();
+    let log_time = tf_roslibrust::tf_util::stamp_to_duration(&header.stamp)
+        .num_nanoseconds()
+        .unwrap() as u64;
+    mcap_out.write_to_known_channel(
+        &mcap::records::MessageHeader {
+            channel_id,
+            sequence,
+            log_time,
+            publish_time: log_time,
+        },
+        &data[4..], // chop off header bytes
+    )
+}
 
 // duplicated in tf_roslibrust, use that one instead of this
 pub fn get_sorted_indices<T: PartialOrd>(list: &[T]) -> Vec<usize> {
@@ -59,6 +111,7 @@ fn use_topic(topic: &str, include_re: &Option<Regex>, exclude_re: &Option<Regex>
 pub async fn mcap_playback_init(
     nh: &roslibrust::ros1::NodeHandle,
     mcap_name: &str,
+    aggregate_tf_static: bool,
     mapped: &Mmap,
     include_re: &Option<Regex>,
     exclude_re: &Option<Regex>,
@@ -84,7 +137,7 @@ pub async fn mcap_playback_init(
         msg_t1 - msg_t0
     );
 
-    let mut tf_static_aggregated = tf2_msgs::TFMessage::default();
+    let mut has_tf_static = false;
     let mut pubs = HashMap::new();
 
     for channel in summary.channels.values() {
@@ -104,32 +157,8 @@ pub async fn mcap_playback_init(
         // scan through them and only take the most recent, or build a hash map here
         if channel.topic == "/tf_static" {
             // && channel.schema.unwrap().name == "tf2_msgs/TFMessage" {
-            // TODO(lucasw) how to get through an mcap as quickly as possible to get a single
-            // topic?  The easiest thing would be to save tf_static to a separate mcap in the
-            // first place, more advanced would be for mcap_record to put all the statics
-            // in a separate chunk but then 'mcap convert' wouldn't do that.
-            for message in (mcap::MessageStream::new(mapped)?).flatten() {
-                if message.channel.topic != "/tf_static" {
-                    continue;
-                }
-                let msg_with_header = roslibrust_util::get_message_data_with_header(message.data);
-                match serde_rosmsg::from_slice::<tf2_msgs::TFMessage>(&msg_with_header) {
-                    Ok(tf_msg) => {
-                        log::info!(
-                            "{mcap_name} adding {} transforms to tf_static, total {}\r",
-                            tf_msg.transforms.len(),
-                            tf_msg.transforms.len() + tf_static_aggregated.transforms.len(),
-                        );
-                        for transform in tf_msg.transforms {
-                            tf_static_aggregated.transforms.push(transform);
-                        }
-                    }
-                    Err(err) => {
-                        log::error!("{mcap_name} {err:?}");
-                    }
-                }
-            }
-            continue;
+            has_tf_static = true;
+            log::info!("mcap has tf_static, going to aggregate");
         }
 
         if let Some(schema) = &channel.schema {
@@ -174,6 +203,39 @@ pub async fn mcap_playback_init(
             continue;
         }
     } // loop through channels
+
+    let mut tf_static_aggregated = tf2_msgs::TFMessage::default();
+    // TODO(lucasw) make this optional
+    if aggregate_tf_static && has_tf_static {
+        log::info!("aggregating tf_static");
+        // TODO(lucasw) how to get through an mcap as quickly as possible to get a single
+        // topic?  The easiest thing would be to save tf_static to a separate mcap in the
+        // first place, more advanced would be for mcap_record to put all the statics
+        // in a separate chunk but then 'mcap convert' wouldn't do that.
+        // for message in (mcap::MessageStream::new(mapped)?).flatten() {
+        for message in mcap::MessageStream::new(mapped)? {
+            let message = message?;
+            if message.channel.topic != "/tf_static" {
+                continue;
+            }
+            let msg_with_header = roslibrust_util::get_message_data_with_header(message.data);
+            match serde_rosmsg::from_slice::<tf2_msgs::TFMessage>(&msg_with_header) {
+                Ok(tf_msg) => {
+                    log::info!(
+                        "{mcap_name} adding {} transforms to tf_static, total {}\r",
+                        tf_msg.transforms.len(),
+                        tf_msg.transforms.len() + tf_static_aggregated.transforms.len(),
+                    );
+                    for transform in tf_msg.transforms {
+                        tf_static_aggregated.transforms.push(transform);
+                    }
+                }
+                Err(err) => {
+                    log::error!("{mcap_name} {err:?}");
+                }
+            }
+        }
+    }
 
     Ok((pubs, tf_static_aggregated, msg_t0, msg_t1))
 }

@@ -43,6 +43,8 @@ jobs:
 
       - name: more apt installs
         run: |
+          sudo apt-get install -yqq clang libclang-dev
+          sudo apt-get install -yqq libopencv-dev
           sudo apt install -yqq python3-rosmsg rospack-tools libsensor-msgs-dev libstd-msgs-dev libgeometry-msgs-dev ros-sensor-msgs ros-std-msgs ros-geometry-msgs cargo pkg-config
           sudo apt install -yqq libstd-srvs-dev python3-std-srvs ros-std-srvs
           sudo apt install -yqq libtf2-msgs-dev python3-tf2-msgs ros-tf2-msgs
