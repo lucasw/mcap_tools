@@ -8,7 +8,7 @@ anyhow.workspace = true
 camino.workspace = true
 log.workspace = true
 mcap.workspace = true
-mcap_tools = { version = "0.5.0", path = "../mcap_tools" }
+mcap_tools = { version = "0.16.0", path = "../mcap_tools" }
 minifb = "0.28.0"
 opencv = "0.94.4"
 rerun = "0.23.3"
