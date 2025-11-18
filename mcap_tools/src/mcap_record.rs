@@ -466,7 +466,7 @@ async fn main() -> Result<(), anyhow::Error> {
         let full_node_name = full_node_name.clone();
         let server_fn = move |request: std_srvs::SetBoolRequest| -> Result<
             std_srvs::SetBoolResponse,
-            Box<dyn std::error::Error + Send + Sync>,
+            anyhow::Error,
         > {
             let mut text = format!("{full_node_name} set recording to: {request:?}");
             log::info!("{text}");
