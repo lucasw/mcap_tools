@@ -3081,6 +3081,20 @@ dependencies = [
 
 [[package]]
 name = "hyper-rustls"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec3efd23720e2049821a693cbc7e65ea87c72f1c58ff2f9522ff332b1491e590"
+dependencies = [
+ "futures-util",
+ "http 0.2.12",
+ "hyper 0.14.32",
+ "rustls 0.21.12",
+ "tokio",
+ "tokio-rustls 0.24.1",
+]
+
+[[package]]
+name = "hyper-rustls"
 version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03a01595e11bdcec50946522c32dde3fc6914743000a68b93000965f2f02406d"
@@ -3088,10 +3102,10 @@ dependencies = [
  "http 1.3.1",
  "hyper 1.6.0",
  "hyper-util",
- "rustls",
+ "rustls 0.23.27",
  "rustls-pki-types",
  "tokio",
- "tokio-rustls",
+ "tokio-rustls 0.26.2",
  "tower-service",
  "webpki-roots 1.0.0",
 ]
@@ -3898,7 +3912,7 @@ dependencies = [
 
 [[package]]
 name = "mcap_test_utils"
-version = "0.5.0"
+version = "0.16.1"
 dependencies = [
  "anyhow",
  "camino",
@@ -3911,7 +3925,7 @@ dependencies = [
  "mcap",
  "memmap",
  "regex",
- "roslibrust",
+ "roslibrust 0.16.0",
  "roslibrust_util",
  "serde",
  "serde_derive",
@@ -3927,7 +3941,7 @@ dependencies = [
 
 [[package]]
 name = "mcap_tools"
-version = "0.5.0"
+version = "0.16.1"
 dependencies = [
  "anyhow",
  "camino",
@@ -3942,7 +3956,7 @@ dependencies = [
  "memmap",
  "nalgebra 0.33.2",
  "regex",
- "roslibrust",
+ "roslibrust 0.16.0",
  "roslibrust_util",
  "serde",
  "serde_derive",
@@ -3958,7 +3972,7 @@ dependencies = [
 
 [[package]]
 name = "mcap_view"
-version = "0.5.0"
+version = "0.16.1"
 dependencies = [
  "anyhow",
  "camino",
@@ -3968,7 +3982,7 @@ dependencies = [
  "minifb",
  "opencv",
  "rerun",
- "roslibrust",
+ "roslibrust 0.16.0",
  "roslibrust_util",
  "serde_rosmsg",
  "simple_logger",
@@ -5462,7 +5476,7 @@ dependencies = [
  "quinn-proto",
  "quinn-udp",
  "rustc-hash 2.1.1",
- "rustls",
+ "rustls 0.23.27",
  "socket2",
  "thiserror 2.0.12",
  "tokio",
@@ -5482,7 +5496,7 @@ dependencies = [
  "rand 0.9.1",
  "ring",
  "rustc-hash 2.1.1",
- "rustls",
+ "rustls 0.23.27",
  "rustls-pki-types",
  "slab",
  "thiserror 2.0.12",
@@ -7361,6 +7375,7 @@ dependencies = [
  "http 0.2.12",
  "http-body 0.4.6",
  "hyper 0.14.32",
+ "hyper-rustls 0.24.2",
  "hyper-tls",
  "ipnet",
  "js-sys",
@@ -7370,6 +7385,7 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
+ "rustls 0.21.12",
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
@@ -7378,11 +7394,13 @@ dependencies = [
  "system-configuration",
  "tokio",
  "tokio-native-tls",
+ "tokio-rustls 0.24.1",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "webpki-roots 0.25.4",
  "winreg",
 ]
 
@@ -7399,7 +7417,7 @@ dependencies = [
  "http-body 1.0.1",
  "http-body-util",
  "hyper 1.6.0",
- "hyper-rustls",
+ "hyper-rustls 0.27.6",
  "hyper-util",
  "ipnet",
  "js-sys",
@@ -7409,14 +7427,14 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "quinn",
- "rustls",
+ "rustls 0.23.27",
  "rustls-pki-types",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "sync_wrapper 1.0.2",
  "tokio",
- "tokio-rustls",
+ "tokio-rustls 0.26.2",
  "tower 0.5.2",
  "tower-http 0.6.6",
  "tower-service",
@@ -7598,8 +7616,17 @@ source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_12#6
 dependencies = [
  "roslibrust_codegen",
  "roslibrust_codegen_macro",
- "roslibrust_common",
- "roslibrust_ros1",
+ "roslibrust_common 0.12.0",
+ "roslibrust_ros1 0.12.1",
+]
+
+[[package]]
+name = "roslibrust"
+version = "0.16.0"
+source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_16#00c520027f364b9152403b274528bdd34e1b3e68"
+dependencies = [
+ "roslibrust_common 0.16.0",
+ "roslibrust_ros1 0.16.0",
 ]
 
 [[package]]
@@ -7612,7 +7639,7 @@ dependencies = [
  "md5",
  "proc-macro2",
  "quote",
- "roslibrust_common",
+ "roslibrust_common 0.12.0",
  "serde",
  "serde-big-array",
  "serde_bytes",
@@ -7649,6 +7676,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "roslibrust_common"
+version = "0.16.0"
+source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_16#00c520027f364b9152403b274528bdd34e1b3e68"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "futures-core",
+ "md5",
+ "serde",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "roslibrust_ros1"
 version = "0.12.1"
 source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_12#608c347ed09eca25ca921a6cac083860650409a3"
@@ -7662,7 +7702,30 @@ dependencies = [
  "log",
  "regex",
  "reqwest 0.11.27",
- "roslibrust_common",
+ "roslibrust_common 0.12.0",
+ "roslibrust_serde_rosmsg",
+ "serde",
+ "serde_xmlrpc",
+ "test-log",
+ "thiserror 2.0.12",
+ "tokio",
+]
+
+[[package]]
+name = "roslibrust_ros1"
+version = "0.16.0"
+source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_16#00c520027f364b9152403b274528bdd34e1b3e68"
+dependencies = [
+ "abort-on-drop",
+ "anyhow",
+ "byteorder",
+ "gethostname",
+ "hyper 0.14.32",
+ "lazy_static",
+ "log",
+ "regex",
+ "reqwest 0.11.27",
+ "roslibrust_common 0.16.0",
  "roslibrust_serde_rosmsg",
  "serde",
  "serde_xmlrpc",
@@ -7691,7 +7754,7 @@ dependencies = [
  "camino",
  "log",
  "memmap",
- "roslibrust",
+ "roslibrust 0.12.2",
  "serde",
  "serde-big-array",
  "serde_derive",
@@ -7769,6 +7832,18 @@ dependencies = [
 
 [[package]]
 name = "rustls"
+version = "0.21.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f56a14d1f48b391359b22f731fd4bd7e43c97f3c50eee276f3aa09c94784d3e"
+dependencies = [
+ "log",
+ "ring",
+ "rustls-webpki 0.101.7",
+ "sct",
+]
+
+[[package]]
+name = "rustls"
 version = "0.23.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "730944ca083c1c233a75c09f199e973ca499344a2b7ba9e755c457e86fb4a321"
@@ -7777,7 +7852,7 @@ dependencies = [
  "once_cell",
  "ring",
  "rustls-pki-types",
- "rustls-webpki",
+ "rustls-webpki 0.103.3",
  "subtle",
  "zeroize",
 ]
@@ -7820,6 +7895,16 @@ checksum = "229a4a4c221013e7e1f1a043678c5cc39fe5171437c88fb47151a21e6f5b5c79"
 dependencies = [
  "web-time",
  "zeroize",
+]
+
+[[package]]
+name = "rustls-webpki"
+version = "0.101.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b6275d1ee7a1cd780b64aca7726599a1dbc893b1e64144529e55c3c2f745765"
+dependencies = [
+ "ring",
+ "untrusted",
 ]
 
 [[package]]
@@ -7883,6 +7968,16 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "sct"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da046153aa2352493d6cb7da4b6e5c0c057d8a1d0a9aa8560baffdd945acd414"
+dependencies = [
+ "ring",
+ "untrusted",
+]
 
 [[package]]
 name = "sctk-adwaita"
@@ -8630,7 +8725,7 @@ dependencies = [
  "clap",
  "log",
  "nalgebra 0.30.1",
- "roslibrust",
+ "roslibrust 0.12.2",
  "roslibrust_util",
  "serde",
  "serde-big-array",
@@ -8885,11 +8980,21 @@ dependencies = [
 
 [[package]]
 name = "tokio-rustls"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c28327cf380ac148141087fbfb9de9d7bd4e84ab5d2c28fbc911d753de8a7081"
+dependencies = [
+ "rustls 0.21.12",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-rustls"
 version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e727b36a1a0e8b74c376ac2211e40c2c8af09fb4013c60d910495810f008e9b"
 dependencies = [
- "rustls",
+ "rustls 0.23.27",
  "tokio",
 ]
 
@@ -8978,7 +9083,7 @@ dependencies = [
  "rustls-pemfile 2.2.0",
  "socket2",
  "tokio",
- "tokio-rustls",
+ "tokio-rustls 0.26.2",
  "tokio-stream",
  "tower 0.4.13",
  "tower-layer",
@@ -9280,7 +9385,7 @@ dependencies = [
  "flate2",
  "log",
  "once_cell",
- "rustls",
+ "rustls 0.23.27",
  "rustls-pki-types",
  "url",
  "webpki-roots 0.26.11",
@@ -9770,6 +9875,12 @@ dependencies = [
  "url",
  "web-sys",
 ]
+
+[[package]]
+name = "webpki-roots"
+version = "0.25.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1"
 
 [[package]]
 name = "webpki-roots"

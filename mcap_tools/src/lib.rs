@@ -43,7 +43,10 @@ pub fn mcap_write<T: RosMessageType>(
 ) -> Result<(), mcap::McapError> {
     let sequence = 0;
     let data = serde_rosmsg::to_vec(&msg).unwrap();
-    let log_time = tf_roslibrust::tf_util::stamp_to_duration(&header.stamp)
+    let publish_time = tf_roslibrust::tf_util::stamp_to_duration(&header.stamp)
+        .num_nanoseconds()
+        .unwrap() as u64;
+    let log_time = tf_roslibrust::tf_util::duration_now()
         .num_nanoseconds()
         .unwrap() as u64;
     mcap_out.write_to_known_channel(
@@ -51,7 +54,7 @@ pub fn mcap_write<T: RosMessageType>(
             channel_id,
             sequence,
             log_time,
-            publish_time: log_time,
+            publish_time,
         },
         &data[4..], // chop off header bytes
     )
