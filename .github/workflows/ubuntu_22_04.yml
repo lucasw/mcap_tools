@@ -57,8 +57,8 @@ jobs:
           sudo apt install -yqq librust-openssl-dev
           sudo apt install -yqq catkin python3-roslaunch
           rospack find geometry_msgs
-          #echo "ROS_PACKAGE_PATH=`rospack find actionlib_msgs`:`rospack find nav_msgs`:`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find rosgraph_msgs`:`rospack find std_srvs`:`rospack find tf2_msgs`" > $GITHUB_ENV
-          # echo "ROS_PACKAGE_PATH=/usr/share" > $GITHUB_ENV
+          # echo "ROS_PACKAGE_PATH=`rospack find actionlib_msgs`:`rospack find nav_msgs`:`rospack find std_msgs`:`rospack find sensor_msgs`:`rospack find geometry_msgs`:`rospack find rosgraph_msgs`:`rospack find std_srvs`:`rospack find tf2_msgs`" > $GITHUB_ENV
+          echo "ROS_PACKAGE_PATH=/usr/share" > $GITHUB_ENV
 
       - run: echo $ROS_PACKAGE_PATH
 
