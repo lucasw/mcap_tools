@@ -3,7 +3,7 @@
 use clap::{arg, command};
 use regex::Regex;
 use std::collections::HashSet;
-use std::collections::{hash_map, HashMap};
+use std::collections::{HashMap, hash_map};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -63,7 +63,9 @@ async fn mcap_record(
                             log::info!("size {} / {size_limit} MB", size_mb as u64);
                         }
                         if size_mb > size_limit as f64 {
-                            log::info!("{full_node_name} mcap {mcap_name} size: {size_mb}MB > {size_limit}MB, rolling over");
+                            log::info!(
+                                "{full_node_name} mcap {mcap_name} size: {size_mb}MB > {size_limit}MB, rolling over"
+                            );
                             mcap_out.unwrap().finish().unwrap();
                             mcap_out = None;
                             let _ = rename_active(&mcap_name);
@@ -340,7 +342,9 @@ async fn subscribe_task(
                         Err(e) => {
                             // panic will only exit this one receiver thread, but should
                             // stop everything here
-                            log::error!("couldn't send message {topic} {topic_type} {arrival_ns_epoch} {sequence} {e:?}");
+                            log::error!(
+                                "couldn't send message {topic} {topic_type} {arrival_ns_epoch} {sequence} {e:?}"
+                            );
                             std::process::exit(1);
                         }
                     }

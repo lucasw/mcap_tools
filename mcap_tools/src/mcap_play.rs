@@ -9,12 +9,12 @@ use tokio::sync::broadcast;
 
 use std::time::Duration;
 
-use futures::{future::FutureExt, select, StreamExt};
+use futures::{StreamExt, future::FutureExt, select};
 use futures_timer::Delay;
 
 use crossterm::{
     event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode},
+    // terminal::{disable_raw_mode, enable_raw_mode},
 };
 
 use roslibrust_util::{rosgraph_msgs, tf2_msgs};
@@ -149,7 +149,7 @@ async fn update_playback_clock(
     // send the time to every mcap playback task
     clock_tx.send((clock_seconds, msg_t_start))?;
 
-    if let Some(ref clock_publisher) = clock_publisher {
+    if let Some(clock_publisher) = clock_publisher {
         let clock_msg = rosgraph_msgs::Clock {
             clock: roslibrust::codegen::integral_types::Time {
                 secs: clock_seconds as i32,
@@ -353,7 +353,8 @@ async fn main() -> Result<(), anyhow::Error> {
         };
 
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        enable_raw_mode()?;
+        // TODO(lucasw) temp disable of messing with the terminal
+        // enable_raw_mode()?;
 
         // want the queue small here, lagging and skipping old values is better than
         // working with old values
@@ -461,7 +462,8 @@ async fn main() -> Result<(), anyhow::Error> {
             log::info!("done with tokio handles\r");
         }
         */
-        disable_raw_mode()?;
+        // TODO(lucasw) temp disable of messing with the terminal
+        // disable_raw_mode()?;
 
         // signal that clock is done
         // TODO(lucasw) need to make this better- maybe a bool in the tuple?

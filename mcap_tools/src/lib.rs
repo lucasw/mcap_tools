@@ -1,7 +1,7 @@
 use memmap::Mmap;
 use regex::Regex;
-use roslibrust::ros1::PublisherAny;
 use roslibrust::RosMessageType;
+use roslibrust::ros1::PublisherAny;
 use roslibrust_util::{std_msgs::Header, tf2_msgs};
 use std::collections::HashMap;
 use std::fs::File;
@@ -94,14 +94,14 @@ pub fn get_bins<T: Copy>(vals: &[T], sort_indices: &[usize], num_bins: usize) ->
 
 fn use_topic(topic: &str, include_re: &Option<Regex>, exclude_re: &Option<Regex>) -> bool {
     // TODO(lucasw) topic_type matching would be useful as well
-    if let Some(ref re) = include_re {
+    if let Some(re) = include_re {
         if re.captures(topic).is_none() {
             log::debug!("not playing back {topic}");
             return false;
         }
     }
 
-    if let Some(ref re) = exclude_re {
+    if let Some(re) = exclude_re {
         if re.captures(topic).is_some() {
             log::info!("excluding playing back {topic}");
             return false;
@@ -383,7 +383,8 @@ pub async fn play_one_mcap(
         println!("{} -> {} queued in rx", clock_len, clock_rx.len());
         let (mut clock_t, mut msg_t0) = wait_for_playback_time(&mut clock_rx, None).await?;
         log::info!(
-            "loop {loop_count}, clock {clock_t:.1}, msg t start {msg_t0:.1}, elapsed {:.1}, '{mcap_name}'\r", clock_t - msg_t0
+            "loop {loop_count}, clock {clock_t:.1}, msg t start {msg_t0:.1}, elapsed {:.1}, '{mcap_name}'\r",
+            clock_t - msg_t0
         );
 
         let mut last_msg_time = 0.0;
@@ -400,7 +401,9 @@ pub async fn play_one_mcap(
             )? {
                 Some(values) => values,
                 None => {
-                    log::info!("{loop_count} done with messages in stream, published {count}, {skipping} skipped {mcap_name}\r");
+                    log::info!(
+                        "{loop_count} done with messages in stream, published {count}, {skipping} skipped {mcap_name}\r"
+                    );
                     // TODO(lucasw) wait for signal to loop instead of breaking now
                     loop {
                         let (new_clock_t, _new_msg_t0) =
