@@ -108,7 +108,9 @@ fn main() -> Result<()> {
                     (window, width, height)
                 });
             if width != *width0 || height != *height0 {
-                log::warn!("inconsistent image size topic width {width} was {width0}, height {height} was {height0}");
+                log::warn!(
+                    "inconsistent image size topic width {width} was {width0}, height {height} was {height0}"
+                );
                 // continue;
             }
 
