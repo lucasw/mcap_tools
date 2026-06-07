@@ -1510,7 +1510,7 @@ dependencies = [
  "bitflags 1.3.2",
  "core-foundation 0.9.4",
  "core-graphics-types",
- "foreign-types 0.5.0",
+ "foreign-types",
  "libc",
 ]
 
@@ -2371,21 +2371,12 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "foreign-types"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1"
-dependencies = [
- "foreign-types-shared 0.1.1",
-]
-
-[[package]]
-name = "foreign-types"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d737d9aa519fb7b749cbc3b962edcf310a8dd1f4b67c91c4f83975dbdd17d965"
 dependencies = [
  "foreign-types-macros",
- "foreign-types-shared 0.3.1",
+ "foreign-types-shared",
 ]
 
 [[package]]
@@ -2398,12 +2389,6 @@ dependencies = [
  "quote",
  "syn 2.0.100",
 ]
-
-[[package]]
-name = "foreign-types-shared"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
 name = "foreign-types-shared"
@@ -3124,19 +3109,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyper-tls"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6183ddfa99b85da61a140bea0efc93fdf56ceaa041b37d553518030827f9905"
-dependencies = [
- "bytes",
- "hyper 0.14.32",
- "native-tls",
- "tokio",
- "tokio-native-tls",
-]
-
-[[package]]
 name = "hyper-util"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3172,7 +3144,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.0",
+ "windows-core 0.59.0",
 ]
 
 [[package]]
@@ -3925,7 +3897,7 @@ dependencies = [
  "mcap",
  "memmap",
  "regex",
- "roslibrust 0.16.0",
+ "roslibrust",
  "roslibrust_util",
  "serde",
  "serde_derive",
@@ -3954,9 +3926,9 @@ dependencies = [
  "log-once",
  "mcap",
  "memmap",
- "nalgebra 0.33.2",
+ "nalgebra",
  "regex",
- "roslibrust 0.16.0",
+ "roslibrust",
  "roslibrust_util",
  "serde",
  "serde_derive",
@@ -3982,7 +3954,7 @@ dependencies = [
  "minifb",
  "opencv",
  "rerun",
- "roslibrust 0.16.0",
+ "roslibrust",
  "roslibrust_util",
  "serde_rosmsg",
  "simple_logger",
@@ -4066,7 +4038,7 @@ dependencies = [
  "bitflags 2.9.0",
  "block",
  "core-graphics-types",
- "foreign-types 0.5.0",
+ "foreign-types",
  "log",
  "objc",
  "paste",
@@ -4200,45 +4172,18 @@ dependencies = [
 
 [[package]]
 name = "nalgebra"
-version = "0.30.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fb2d0de08694bed883320212c18ee3008576bfe8c306f4c3c4a58b4876998be"
-dependencies = [
- "approx",
- "matrixmultiply",
- "nalgebra-macros 0.1.0",
- "num-complex",
- "num-rational",
- "num-traits",
- "simba 0.7.3",
- "typenum",
-]
-
-[[package]]
-name = "nalgebra"
 version = "0.33.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26aecdf64b707efd1310e3544d709c5c0ac61c13756046aaaba41be5c4f66a3b"
 dependencies = [
  "approx",
  "matrixmultiply",
- "nalgebra-macros 0.2.2",
+ "nalgebra-macros",
  "num-complex",
  "num-rational",
  "num-traits",
- "simba 0.9.0",
+ "simba",
  "typenum",
-]
-
-[[package]]
-name = "nalgebra-macros"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01fcc0b8149b4632adc89ac3b7b31a12fb6099a0317a4eb2ebff574ef7de7218"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -4259,23 +4204,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12fcfa1bd49e0342ec1d07ed2be83b59963e7acbeb9310e1bb2c07b69dadd959"
 dependencies = [
  "jobserver",
-]
-
-[[package]]
-name = "native-tls"
-version = "0.2.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87de3442987e9dbec73158d5c715e7ad9072fda936bb03d19d7fa10e00520f0e"
-dependencies = [
- "libc",
- "log",
- "openssl",
- "openssl-probe",
- "openssl-sys",
- "schannel",
- "security-framework 2.11.1",
- "security-framework-sys",
- "tempfile",
 ]
 
 [[package]]
@@ -4905,48 +4833,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "openssl"
-version = "0.10.72"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fedfea7d58a1f73118430a55da6a286e7b044961736ce96a16a17068ea25e5da"
-dependencies = [
- "bitflags 2.9.0",
- "cfg-if",
- "foreign-types 0.3.2",
- "libc",
- "once_cell",
- "openssl-macros",
- "openssl-sys",
-]
-
-[[package]]
-name = "openssl-macros"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.100",
-]
-
-[[package]]
 name = "openssl-probe"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
-
-[[package]]
-name = "openssl-sys"
-version = "0.9.107"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8288979acd84749c744a9014b4382d42b8f7b2592847b5afb2ed29e5d16ede07"
-dependencies = [
- "cc",
- "libc",
- "pkg-config",
- "vcpkg",
-]
 
 [[package]]
 name = "option-ext"
@@ -7376,12 +7266,10 @@ dependencies = [
  "http-body 0.4.6",
  "hyper 0.14.32",
  "hyper-rustls 0.24.2",
- "hyper-tls",
  "ipnet",
  "js-sys",
  "log",
  "mime",
- "native-tls",
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
@@ -7393,7 +7281,6 @@ dependencies = [
  "sync_wrapper 0.1.2",
  "system-configuration",
  "tokio",
- "tokio-native-tls",
  "tokio-rustls 0.24.1",
  "tower-service",
  "url",
@@ -7611,68 +7498,47 @@ dependencies = [
 
 [[package]]
 name = "roslibrust"
-version = "0.12.2"
-source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_12#608c347ed09eca25ca921a6cac083860650409a3"
-dependencies = [
- "roslibrust_codegen",
- "roslibrust_codegen_macro",
- "roslibrust_common 0.12.0",
- "roslibrust_ros1 0.12.1",
-]
-
-[[package]]
-name = "roslibrust"
 version = "0.16.0"
 source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_16#00c520027f364b9152403b274528bdd34e1b3e68"
 dependencies = [
- "roslibrust_common 0.16.0",
- "roslibrust_ros1 0.16.0",
+ "roslibrust_codegen",
+ "roslibrust_codegen_macro",
+ "roslibrust_common",
+ "roslibrust_ros1",
 ]
 
 [[package]]
 name = "roslibrust_codegen"
-version = "0.12.0"
-source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_12#608c347ed09eca25ca921a6cac083860650409a3"
+version = "0.16.0"
+source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_16#00c520027f364b9152403b274528bdd34e1b3e68"
 dependencies = [
  "lazy_static",
  "log",
  "md5",
  "proc-macro2",
  "quote",
- "roslibrust_common 0.12.0",
+ "roslibrust_common",
  "serde",
  "serde-big-array",
  "serde_bytes",
  "serde_json",
+ "sha2",
  "simple-error",
  "smart-default",
  "syn 1.0.109",
- "tokio",
  "walkdir",
  "xml-rs",
 ]
 
 [[package]]
 name = "roslibrust_codegen_macro"
-version = "0.12.0"
-source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_12#608c347ed09eca25ca921a6cac083860650409a3"
+version = "0.16.0"
+source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_16#00c520027f364b9152403b274528bdd34e1b3e68"
 dependencies = [
  "proc-macro2",
  "quote",
  "roslibrust_codegen",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "roslibrust_common"
-version = "0.12.0"
-source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_12#608c347ed09eca25ca921a6cac083860650409a3"
-dependencies = [
- "anyhow",
- "futures",
- "md5",
- "serde",
- "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -7690,29 +7556,6 @@ dependencies = [
 
 [[package]]
 name = "roslibrust_ros1"
-version = "0.12.1"
-source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_12#608c347ed09eca25ca921a6cac083860650409a3"
-dependencies = [
- "abort-on-drop",
- "anyhow",
- "byteorder",
- "gethostname",
- "hyper 0.14.32",
- "lazy_static",
- "log",
- "regex",
- "reqwest 0.11.27",
- "roslibrust_common 0.12.0",
- "roslibrust_serde_rosmsg",
- "serde",
- "serde_xmlrpc",
- "test-log",
- "thiserror 2.0.12",
- "tokio",
-]
-
-[[package]]
-name = "roslibrust_ros1"
 version = "0.16.0"
 source = "git+https://github.com/lucasw/roslibrust?branch=get_rx_msg_def_v0_16#00c520027f364b9152403b274528bdd34e1b3e68"
 dependencies = [
@@ -7725,7 +7568,7 @@ dependencies = [
  "log",
  "regex",
  "reqwest 0.11.27",
- "roslibrust_common 0.16.0",
+ "roslibrust_common",
  "roslibrust_serde_rosmsg",
  "serde",
  "serde_xmlrpc",
@@ -7747,14 +7590,14 @@ dependencies = [
 
 [[package]]
 name = "roslibrust_util"
-version = "0.2.0"
-source = "git+https://github.com/lucasw/tf_roslibrust#a46ab41537d034a2143480619f6802db30d9e6f9"
+version = "0.16.2"
+source = "git+https://github.com/lucasw/tf_roslibrust#922c7f9edc22a3e12f5b37212b85b4d02fe2fa9d"
 dependencies = [
  "anyhow",
  "camino",
  "log",
  "memmap",
- "roslibrust 0.12.2",
+ "roslibrust",
  "serde",
  "serde-big-array",
  "serde_derive",
@@ -7866,7 +7709,7 @@ dependencies = [
  "openssl-probe",
  "rustls-pki-types",
  "schannel",
- "security-framework 3.2.0",
+ "security-framework",
 ]
 
 [[package]]
@@ -8013,19 +7856,6 @@ dependencies = [
  "cfg-if",
  "libc",
  "version-compare",
-]
-
-[[package]]
-name = "security-framework"
-version = "2.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "897b2245f0b511c87893af39b033e5ca9cce68824c4d7e7630b5a1d339658d02"
-dependencies = [
- "bitflags 2.9.0",
- "core-foundation 0.9.4",
- "core-foundation-sys",
- "libc",
- "security-framework-sys",
 ]
 
 [[package]]
@@ -8271,19 +8101,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9203b8055f63a2a00e2f593bb0510367fe707d7ff1e5c872de2f537b339e5410"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "simba"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f3fd720c48c53cace224ae62bef1bbff363a70c68c4802a78b5cc6159618176"
-dependencies = [
- "approx",
- "num-complex",
- "num-traits",
- "paste",
- "wide",
 ]
 
 [[package]]
@@ -8717,15 +8534,15 @@ dependencies = [
 
 [[package]]
 name = "tf_roslibrust"
-version = "0.2.5"
-source = "git+https://github.com/lucasw/tf_roslibrust#a46ab41537d034a2143480619f6802db30d9e6f9"
+version = "0.16.2"
+source = "git+https://github.com/lucasw/tf_roslibrust#922c7f9edc22a3e12f5b37212b85b4d02fe2fa9d"
 dependencies = [
  "anyhow",
  "chrono",
  "clap",
  "log",
- "nalgebra 0.30.1",
- "roslibrust 0.12.2",
+ "nalgebra",
+ "roslibrust",
  "roslibrust_util",
  "serde",
  "serde-big-array",
@@ -8966,16 +8783,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.100",
-]
-
-[[package]]
-name = "tokio-native-tls"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
-dependencies = [
- "native-tls",
- "tokio",
 ]
 
 [[package]]
