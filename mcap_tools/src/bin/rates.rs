@@ -218,7 +218,8 @@ fn main() -> Result<(), anyhow::Error> {
                     // into a toml file
                     log::info!("{topic_name}");
                     println!("    {observed_rate:.2}Hz {num}");
-                    println!("    rx time gap mean: {:.3}, std dev {:0.3}, min {:0.3}, max {longest_gap:0.1}",
+                    println!(
+                        "    rx time gap mean: {:.3}, std dev {:0.3}, min {:0.3}, max {longest_gap:0.1}",
                         dts.mean(),
                         dts.variance().sqrt(),
                         dts_sorted[sort_indices[0]],
@@ -266,22 +267,30 @@ fn main() -> Result<(), anyhow::Error> {
                 if let Some(ref expected_stats) = expected_stats {
                     let expected_stat = expected_stats.get(topic_name);
                     if let Some(expected_stat) = expected_stat {
-                        if rate.is_some() && expected_stat.rate.is_some() {
-                            let observed_rate = rate.unwrap();
-                            let expected_rate = expected_stat.rate.unwrap();
-                            if observed_rate <= epsilon || expected_rate <= epsilon {
+                        if let Some(observed_rate) = &rate
+                            && let Some(expected_rate) = &expected_stat.rate
+                        {
+                            if *observed_rate <= epsilon || *expected_rate <= epsilon {
                                 errors_observed = true;
-                                log::error!("too small observed {observed_rate} or expected {expected_rate} < {epsilon}");
+                                log::error!(
+                                    "too small observed {observed_rate} or expected {expected_rate} < {epsilon}"
+                                );
                             } else {
-                                let ratio = observed_rate / expected_rate;
+                                let ratio = *observed_rate / *expected_rate;
                                 if ratio > (1.0 + threshold) {
                                     errors_observed = true;
-                                    log::error!("ratio {ratio:.3} out of tolerance, observed {observed_rate} > {expected_rate} expected");
+                                    log::error!(
+                                        "ratio {ratio:.3} out of tolerance, observed {observed_rate} > {expected_rate} expected"
+                                    );
                                 } else if ratio < (1.0 - threshold) {
                                     errors_observed = true;
-                                    log::error!("ratio {ratio:.3} out of tolerance, observed {observed_rate} < {expected_rate} expected");
+                                    log::error!(
+                                        "ratio {ratio:.3} out of tolerance, observed {observed_rate} < {expected_rate} expected"
+                                    );
                                 } else if ratio == 1.0 {
-                                    log::warn!("ratio {ratio} is exactly 1.0 {observed_rate} == {expected_rate}");
+                                    log::warn!(
+                                        "ratio {ratio} is exactly 1.0 {observed_rate} == {expected_rate}"
+                                    );
                                 } else {
                                     log::info!("ratio {ratio:.3} in tolerance ({threshold})");
                                 }

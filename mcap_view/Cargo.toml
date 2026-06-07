@@ -1,0 +1,31 @@
+[package]
+name = "mcap_view"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+camino.workspace = true
+log.workspace = true
+mcap.workspace = true
+mcap_tools = { version = "0.16.0", path = "../mcap_tools" }
+minifb = "0.28.0"
+opencv = "0.94.4"
+rerun = "0.23.3"
+roslibrust.workspace = true
+roslibrust_util.workspace = true
+serde_rosmsg.workspace = true
+simple_logger.workspace = true
+tf_roslibrust.workspace = true
+
+[[bin]]
+name = "mcap_view"
+path = "src/bin/mcap_view.rs"
+
+[[bin]]
+name = "mcap_image_to_compressed"
+path = "src/bin/image_to_compressed.rs"
+
+[[bin]]
+name = "mcap_to_rerun"
+path = "src/bin/mcap_to_rerun.rs"

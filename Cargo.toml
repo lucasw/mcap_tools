@@ -2,12 +2,12 @@
 resolver = "2"
 members = [
     "mcap_test_utils",
-    "mcap_tools",
+    "mcap_tools", "mcap_view",
 ]
 
 [workspace.package]
-version = "0.16.0"
-edition = "2021"
+version = "0.16.1"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -42,10 +42,12 @@ git = "https://github.com/lucasw/roslibrust"
 branch = "get_rx_msg_def_v0_16"
 # path = "../../roslibrust/roslibrust"
 # version="0.10.2"
-features = ["ros1"]
+features = ["codegen", "ros1"]
 
 [workspace.dependencies.roslibrust_util]
 git = "https://github.com/lucasw/tf_roslibrust"
+version = "0.16.2"
 
 [workspace.dependencies.tf_roslibrust]
 git = "https://github.com/lucasw/tf_roslibrust"
+version = "0.16.2"
