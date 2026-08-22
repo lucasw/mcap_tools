@@ -33,11 +33,13 @@ fn get_wall_time() -> f64 {
         .as_secs_f64()
 }
 
+/// TODO(lucasw) make this a struct
 type PlayArgs = (
     Option<u64>,
     bool,
     bool,
     (Option<Regex>, Option<Regex>),
+    f64,
     f64,
     Vec<String>,
 );
@@ -87,6 +89,14 @@ fn get_non_ros_cli_args(unused_args: Vec<String>) -> Result<PlayArgs, anyhow::Er
         )
         .arg(
             arg!(
+                --time_epoch_start <SEC> "start playback at unix epoch time stamp"
+            )
+            .value_parser(clap::value_parser!(f64))
+            .default_value("0.0")
+            .required(false)
+        )
+        .arg(
+            arg!(
                 <mcaps> ... "mcaps to load"
             )
             .trailing_var_arg(true)
@@ -123,6 +133,9 @@ fn get_non_ros_cli_args(unused_args: Vec<String>) -> Result<PlayArgs, anyhow::Er
     let start_secs_offset = matches.get_one::<f64>("start").copied().unwrap();
     log::info!("start_secs_offset {start_secs_offset:?}");
 
+    let time_epoch_start = matches.get_one::<f64>("time_epoch_start").copied().unwrap();
+    log::info!("time_epoch_start {time_epoch_start:?}");
+
     // TODO(lucasw) there must be a shorter way to get vector of strings here
     let mcap_names: Vec<_> = matches.get_many::<String>("mcaps").unwrap().collect();
     let mcap_names: Vec<String> = mcap_names.iter().map(|s| (**s).clone()).collect();
@@ -134,6 +147,7 @@ fn get_non_ros_cli_args(unused_args: Vec<String>) -> Result<PlayArgs, anyhow::Er
         aggregate_tf_static,
         (include_re, exclude_re),
         start_secs_offset,
+        time_epoch_start,
         mcap_names,
     ))
 }
@@ -240,6 +254,7 @@ async fn main() -> Result<(), anyhow::Error> {
         aggregate_tf_static,
         (include_re, exclude_re),
         start_secs_offset,
+        time_epoch_start,
         mcap_names,
     ) = get_non_ros_cli_args(unused_args)?;
 
@@ -298,15 +313,35 @@ async fn main() -> Result<(), anyhow::Error> {
                 }
             }
 
+            if (time_epoch_start - msg_t_start).abs() < 0.1 {
+                log::info!(
+                    "time_epoch_start {time_epoch_start} is the same or about the same as msg_t_start {msg_t_start}, {}",
+                    time_epoch_start - msg_t_start,
+                );
+            } else if time_epoch_start > msg_t_start {
+                log::info!(
+                    "using time_epoch_start {time_epoch_start} instead of msg_t_start {msg_t_start}, {:.3}",
+                    time_epoch_start - msg_t_start,
+                );
+            } else {
+                if time_epoch_start > 0.0 {
+                    log::warn!(
+                        "msg_t_start {msg_t_start} is after time_epoch_start {time_epoch_start} {:.3}",
+                        msg_t_start - time_epoch_start,
+                    );
+                }
+            }
+            msg_t_start = msg_t_start.max(time_epoch_start);
             msg_t_start += start_secs_offset;
             log::info!(
-                ">>> start time {msg_t_start:.2}, end time {msg_t_end:.2}: duration {:.1}s <<<",
+                ">>> start time {msg_t_start:.2} (including start_secs_offset {start_secs_offset}), end time {msg_t_end:.2}: duration {:.1}s <<<",
                 msg_t_end - msg_t_start
             );
 
             if play_data.is_empty() {
                 panic!("no mcaps successfully loaded");
             }
+
             (msg_t_start, tf_static_aggregated, msg_t_end, play_data)
         };
 
